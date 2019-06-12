@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<test lab="lab1">
+
+<description>
+    This defines several tests for lab 1:
+    - basic pings from client to servers
+    - traceroutes from client to servers
+    - web page downloads from servers to client
+    The script will fail if any tests fail.
+    Make sure that you pass all tests before submitting code.
+</description>
+
+<init>
+  <run_command>pkill -9 -f SimpleHTTPServer</run_command>
+  <run_command>pkill -9 -f webserver.py</run_command>
+  <run_command>./init_tests.sh</run_command>
+</init>
+
+<startup>
+  <run_command sleep="5">screen -S sr -d -m valgrind --leak-check=yes --log-file="/tmp/sr_valgrind" ./router/sr</run_command>
+</startup>
+
+<test_cases>
+  <pingall></pingall>
+  <traceroute expect="192.168.2.1 10.0.1.100">server1 client</traceroute>
+  <traceroute expect="172.64.3.1 10.0.1.100">server2 client</traceroute>
+  <traceroute expect="10.0.1.1 192.168.2.2">client server1</traceroute>
+  <wget at="client" from="server1">bovard.jpeg</wget>
+  <wget at="client" from="server2">bovard.jpeg</wget>
+  <valgrind>/tmp/sr_valgrind</valgrind>
+</test_cases>
+
+</test>
