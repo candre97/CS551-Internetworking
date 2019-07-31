@@ -6,19 +6,21 @@
     - basic pings from client to servers
     - traceroutes from client to servers
     - web page downloads from servers to client
-    The script will fail if any tests fail.
-    Make sure that you pass all tests before submitting code.
+    Invoke generic_tester.py with the -f flag to stop after
+    the first failed test.
 </description>
 
+<!-- Clean up environment from prior runs -->
 <init>
   <run_command>killall ovs-controller</run_command>
   <run_command>sh config.sh</run_command>
   <run_command>mn -c</run_command>
 </init>
 
+<!-- Set up the configs and wait for routing to converge -->
 <startup>
-  <run_command>python ../../other/load_configs_multiAS.py ../../551-Labs-Solutions/lab2/configs_multiAS</run_command>
-  <run_command>python ../../other/config_i2_hosts.py</run_command>
+  <run_command>python load_configs_multiAS.py configs_multiAS</run_command>
+  <run_command>python config_i2_hosts.py</run_command>
   <run_command>python ../tester/converged.py multiAS</run_command>
   <run_command>screen -S pox -d -m ~/pox/pox.py cs144.ofhandler cs144.srhandler</run_command>
   <run_command>expect pox_expect</run_command>
@@ -26,118 +28,36 @@
 </startup>
 
 <test_cases>
-  <hostif>SEAT</hostif>
-  <hostif>SALT</hostif>
-  <hostif>NEWY</hostif>
-  <hostif>LOSA</hostif>
-  <hostif>HOUS</hostif>
-  <hostif>WASH</hostif>
-  <hostif>CHIC</hostif>
-  <hostif>ATLA</hostif>
-  <routerif>CHIC newy</routerif>
-  <routerif>CHIC wash</routerif>
-  <routerif>CHIC atla</routerif>
-  <routerif>CHIC kans</routerif>
-  <routerif>NEWY chic</routerif>
-  <routerif>NEWY wash</routerif>
-  <routerif>WASH chic</routerif>
-  <routerif>WASH atla</routerif>
-  <routerif>ATLA wash</routerif>
-  <routerif>ATLA chic</routerif>
-  <routerif>ATLA hous</routerif>
-  <routerif>HOUS atla</routerif>
-  <routerif>HOUS kans</routerif>
-  <routerif>HOUS losa</routerif>
-  <routerif>KANS chic</routerif>
-  <routerif>KANS hous</routerif>
-  <routerif>KANS salt</routerif>
-  <routerif>SALT seat</routerif>
-  <routerif>SALT kans</routerif>
-  <routerif>SALT losa</routerif>
-  <routerif>LOSA seat</routerif>
-  <routerif>LOSA hous</routerif>
-  <routerif>LOSA salt</routerif>
-  <routerif>SEAT salt</routerif>
-  <routerif>SEAT losa</routerif>
-  <linkcost>CHIC newy</linkcost>
-  <linkcost>CHIC wash</linkcost>
-  <linkcost>CHIC atla</linkcost>
-  <linkcost>CHIC kans</linkcost>
-  <linkcost>NEWY chic</linkcost>
-  <linkcost>NEWY wash</linkcost>
-  <linkcost>WASH chic</linkcost>
-  <linkcost>WASH atla</linkcost>
-  <linkcost>ATLA wash</linkcost>
-  <linkcost>ATLA chic</linkcost>
-  <linkcost>ATLA hous</linkcost>
-  <linkcost>HOUS atla</linkcost>
-  <linkcost>HOUS kans</linkcost>
-  <linkcost>HOUS losa</linkcost>
-  <linkcost>KANS chic</linkcost>
-  <linkcost>KANS hous</linkcost>
-  <linkcost>KANS salt</linkcost>
-  <linkcost>SALT seat</linkcost>
-  <linkcost>SALT kans</linkcost>
-  <linkcost>SALT losa</linkcost>
-  <linkcost>LOSA seat</linkcost>
-  <linkcost>LOSA hous</linkcost>
-  <linkcost>LOSA salt</linkcost>
-  <linkcost>SEAT salt</linkcost>
-  <linkcost>SEAT losa</linkcost>
-  <path>SEAT-host NEWY-host</path>
-  <path>SEAT-host KANS-host</path>
-  <path>SEAT-host CHIC-host</path>
-  <path>SEAT-host ATLA-host</path>
-  <path>SEAT-host WASH-host</path>
-  <path>LOSA-host NEWY-host</path>
-  <path>LOSA-host KANS-host</path>
-  <path>LOSA-host CHIC-host</path>
-  <path>LOSA-host ATLA-host</path>
-  <path>LOSA-host WASH-host</path>
-  <path>KANS-host LOSA-host</path>
-  <path>KANS-host ATLA-host</path>
-  <path>KANS-host WASH-host</path>
-  <path>KANS-host NEWY-host</path>
-  <path>CHIC-host SEAT-host</path>
-  <path>CHIC-host LOSA-host</path>
-  <path>CHIC-host SALT-host</path>
-  <path>WASH-host KANS-host</path>
-  <path>WASH-host LOSA-host</path>
-  <path>WASH-host SALT-host</path>
-  <path>WASH-host HOUS-host</path>
-  <path>WASH-host SEAT-host</path>
-  <path>NEWY-host KANS-host</path>
-  <path>NEWY-host LOSA-host</path>
-  <path>NEWY-host SALT-host</path>
-  <path>NEWY-host HOUS-host</path>
-  <path>NEWY-host SEAT-host</path>
-  <ibgp>NEWY</ibgp>
-  <ibgp>WASH</ibgp>
-  <ibgp>ATLA</ibgp>
-  <ibgp>CHIC</ibgp>
-  <ibgp>HOUS</ibgp>
-  <ibgp>KANS</ibgp>
-  <ibgp>SALT</ibgp>
-  <ibgp>LOSA</ibgp>
-  <ibgp>SEAT</ibgp>
-  <path>client server1</path>
-  <path>client server2</path>
-  <path>LOSA-host server1</path>
-  <path>HOUS-host server2</path>
-  <path>SALT-host server1</path>
-  <path>KANS-host server2</path>
-  <path>SEAT-host server2</path>
-  <path>server1 client</path>
-  <path>NEWY-host client</path>
-  <path>WASH-host client</path>
-  <path>ATLA-host client</path>
-  <path>CHIC-host client</path>
-  <wgetmx at="client" from="server1">bovard.jpeg</wgetmx>
-  <wgetmx at="client" from="server2">bovard.jpeg</wgetmx>
-  <wgetmx at="LOSA-host" from="server1">bovard.jpeg</wgetmx>
-  <wgetmx at="SEAT-host" from="server2">bovard.jpeg</wgetmx>
-  <wgetmx at="SALT-host" from="server1">bovard.jpeg</wgetmx>
-  <wgetmx at="HOUS-host" from="server2">bovard.jpeg</wgetmx>  
+  <!-- Test if IBGP connections are up -->
+  <ibgp points="10">NEWY</ibgp>
+  <ibgp points="10">WASH</ibgp>
+  <ibgp points="10">ATLA</ibgp>
+  <ibgp points="10">CHIC</ibgp>
+  <ibgp points="10">HOUS</ibgp>
+  <ibgp points="10">KANS</ibgp>
+  <ibgp points="10">SALT</ibgp>
+  <ibgp points="10">LOSA</ibgp>
+  <ibgp points="10">SEAT</ibgp>
+  <!-- Test cross-AS traceroutes -->
+  <path points="20">client server1</path>
+  <path points="20">client server2</path>
+  <path points="20">LOSA-host server1</path>
+  <path points="20">HOUS-host server2</path>
+  <path points="20">SALT-host server1</path>
+  <path points="20">KANS-host server2</path>
+  <path points="20">SEAT-host server2</path>
+  <path points="20">server1 client</path>
+  <path points="20">NEWY-host client</path>
+  <path points="20">WASH-host client</path>
+  <path points="20">ATLA-host client</path>
+  <path points="20">CHIC-host client</path>
+  <!-- Test web downloads from west and i2 -->
+  <wgetmx points="25" at="client" from="server1">bovard.jpeg</wgetmx>
+  <wgetmx points="25" at="client" from="server2">bovard.jpeg</wgetmx>
+  <wgetmx points="25" at="LOSA-host" from="server1">bovard.jpeg</wgetmx>
+  <wgetmx points="25" at="SEAT-host" from="server2">bovard.jpeg</wgetmx>
+  <wgetmx points="25" at="SALT-host" from="server1">bovard.jpeg</wgetmx>
+  <wgetmx points="25" at="HOUS-host" from="server2">bovard.jpeg</wgetmx>  
 </test_cases>
 
 </test>

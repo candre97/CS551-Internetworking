@@ -8,24 +8,29 @@
     section below for the list of tests.
 </description>
 
+<!-- Clean up from previous runs -->
 <init>
   <run_command>pkill -9 -f SimpleHTTPServer</run_command>
   <run_command>pkill -9 -f webserver.py</run_command>
   <run_command>./init_tests.sh</run_command>
 </init>
 
+<!-- Set up things needed for this test -->
 <startup>
   <run_command sleep="5">screen -S sr -d -m ./router/sr</run_command>
   <run_command at="server1" sleep="3">ifconfig server1-eth0 down</run_command>
 </startup>
 
-
 <test_cases>
-  <pingunreach>client server1</pingunreach>
-  <iperf expect="2.8">client server3</iperf>
-  <traceroute expect="10.0.1.1 172.64.3.10 172.64.3.34">client server4</traceroute>
-  <wget at="client" from="server3">bovard.jpeg</wget>
-  <wget at="client" from="server4">bovard.jpeg</wget>
+  <!-- Test destination unreachable message -->
+  <pingunreach points="10">client server1</pingunreach>
+  <!-- Stress test implementation by sending lots of traffic -->
+  <iperf points="20" expect="2.8">client server3</iperf>
+  <!-- Traceroute to server4 -->
+  <traceroute points="5" expect="10.0.1.1 172.64.3.10 172.64.3.34">client server4</traceroute>
+  <!-- Download image file from web servers -->
+  <wget points="10" at="client" from="server3">bovard.jpeg</wget>
+  <wget points="10" at="client" from="server4">bovard.jpeg</wget>
 </test_cases>
 
 </test>
