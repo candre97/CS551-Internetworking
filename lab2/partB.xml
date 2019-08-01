@@ -24,6 +24,7 @@
   <run_command>python ../tester/converged.py multiAS</run_command>
   <run_command>screen -S pox -d -m ~/pox/pox.py cs144.ofhandler cs144.srhandler</run_command>
   <run_command>expect pox_expect</run_command>
+  <run_command>cp ../lab2/router/sr .</run_command>
   <run_command>screen -S sr -d -m ./sr</run_command>
 </startup>
 

@@ -16,8 +16,8 @@ run only after you finish Part A of Lab 3.
 </init>
 
 <startup>
-  <run_command>python ../../other/load_configs_multiAS.py ../../551-Labs-Solutions/lab2/configs_multiAS</run_command>
-  <run_command>python ../../other/config_i2_hosts.py</run_command>
+  <run_command>python load_configs_multiAS.py configs_multiAS</run_command>
+  <run_command>python config_i2_hosts.py</run_command>
   <run_command>python ../tester/converged.py multiAS</run_command>
   <run_command>screen -S pox -d -m ~/pox/pox.py cs144.ofhandler cs144.srhandler</run_command>
   <run_command>expect pox_expect</run_command>
