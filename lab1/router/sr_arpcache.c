@@ -13,11 +13,14 @@
 
 /* 
   This function gets called every second. For each request sent out, we keep
-  checking whether we should resend an request or destroy the arp request.
+  checking whether we should resend a request or destroy the arp request.
   See the comments in the header file for an idea of what it should look like.
 */
 void sr_arpcache_sweepreqs(struct sr_instance *sr) { 
-    /* Fill this in */
+    /* Fill this in 
+    for each request on sr->cache.requests:
+        handle_arpreq(request)
+    */
 }
 
 /* You should not need to touch the rest of this code. */
