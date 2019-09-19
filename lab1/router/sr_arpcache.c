@@ -11,6 +11,21 @@
 #include "sr_if.h"
 #include "sr_protocol.h"
 
+#define myDEBUG   1
+
+
+/*
+    CUSTOM FUNCTIONS
+*/ 
+
+/*
+    This function handles assembling and sending an ICMP message
+*/
+void send_ICMP_host_unreachable()
+{
+    /* TODO, move stuff into this function*/
+}
+
 /* 
   This function gets called every second. For each request sent out, we keep
   checking whether we should resend a request or destroy the arp request.
@@ -20,7 +35,49 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
     /* Fill this in 
     for each request on sr->cache.requests:
         handle_arpreq(request)
+    
+    iterates through the ARP request queue and re-sends 
+    any outstanding ARP requests that haven't been sent in the past second
+
+    If an ARP request has been sent 5 times with no response, a destination host unreachable should 
+    go back to all the sender of packets that were waiting on a reply to this ARP request
     */
+    time_t curtime = time(NULL);
+    /* char* eth_frame; */
+    /* loop through outstanding requests */
+    struct sr_arpreq *req; 
+    for (req = sr->cache.requests; req != NULL; req = req->next) {
+        curtime = time(NULL);
+
+        if (req->times_sent >= 5) {
+            /* this request has already been sent 5 times
+            reply to all senders waiting on this reply with a DEST HOST UNREACHABLE
+            loop through the senders waiting on a reply from this ARP request */
+            struct sr_packet *pac; 
+
+            for (pac = req->packets; pac != NULL; pac = pac->next) {
+
+                /* send an ICMP packet for DEST HOST UNREACHABLE type=3, code=1*/
+                struct sr_rt *route;
+                struct sr_if *destIF; 
+                /* Packet = [Ethernet header][IP header][ICMPHeader][Data,size=28]*/
+                uint8_t *final_packet = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t) + ICMP_DATA_SIZE);            
+                
+
+
+
+            }
+            sr_arpreq_destroy(&sr->cache, req); 
+        }
+        else if ((req->sent == 0) || (difftime(curtime, req->sent) > 1)) {
+            /* this request has never sent or hasn't sent in the past second so resend it*/
+
+            /* send the request again. */
+
+            /* increment times_sent after sending the request again. */
+            req->times_sent += 1; 
+        }
+    }
 }
 
 /* You should not need to touch the rest of this code. */
