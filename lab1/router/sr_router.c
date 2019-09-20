@@ -11,8 +11,7 @@
  *
  **********************************************************************/
 
-#include <stdio.h>
-#include <assert.h>
+
 
 
 #include "sr_if.h"
@@ -64,21 +63,76 @@ void sr_init(struct sr_instance* sr)
  * packet instead if you intend to keep it around beyond the scope of
  * the method call.
  *
- *---------------------------------------------------------------------*/
+ /*---------------------------------------------------------------------*/
 
 void sr_handlepacket(struct sr_instance* sr,
-        uint8_t * packet/* lent */,
+        uint8_t * packet/* length */,
         unsigned int len,
-        char* interface/* lent */)
+        char* interface/* length */)
 {
-  /* REQUIRES */
-  assert(sr);
-  assert(packet);
-  assert(interface);
+    /* REQUIRES */
+    assert(sr);
+    assert(packet);
+    assert(interface);
 
-  printf("*** -> Received packet of length %d \n",len);
+    uint16_t min_ip_len = 5; 
 
-  /* fill in code here */
+    uint16_t calcd_chk_sum = 0;
+    uint16_t recd_chk_sum = 0;
+    uint16_t recd_ip_len = 0;
+
+    /* Get info out of the packet */
+    if (len > sizeof(sr_ethernet_hdr_t)) {
+        printf("Packet is not long enough\n"); 
+        return; 
+    }
+
+    /* Extract the ethernet header from the message */
+    struct sr_ethernet_hdr_t* eth_hdr;
+    eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+    memcpy(eth_hdr, packet, sizeof(sr_ethernet_hdr_t)); 
+
+    struct sr_if* rx_if = malloc(sizeof(struct sr_if)); 
+    rx_if = sr_get_interface(sr, interface); 
+
+    struct sr_ip_hdr_t* ip_hdr;
+
+    printf("*** -> Received packet of length %d \n",len);
+
+    /* Decide what to do based on what type of packet you received */
+    switch(ethertype(packet)) { 
+        case ethertype_arp:
+
+            break; 
+        case ethertype_ip:
+/*            memcpy(ip_hdr, packet + sizeof(sr_ethernet_hdr_t), sizeof(sr_ip_hdr_t));  */            
+            memcpy(ip_hdr, packet + sizeof(sr_ethernet_hdr_t), sizeof(sr_ip_hdr_t));
+            recd_ip_len = ip_hdr->ip_len;  
+            if (recd_ip_len < min_ip_len) {
+                char* recd_name;
+                recd_name = rx_if->name; 
+                printf("IP Packet received over %s too short & dropped\n", recd_name);
+                return; 
+            } 
+            calcd_chk_sum = cksum(ip_hdr, ip_hdr->ip_len); 
+            recd_chk_sum = ip_hdr->ip_sum; 
+            if(recd_chk_sum != calcd_chk_sum) {
+                printf("Checksum Error, Dropping packet\n"); 
+                printf("From Packet: %i, Calculated: %i\n", recd_chk_sum, calcd_chk_sum); 
+                return; 
+            } /* otherwise continue and handle the packet! */
+
+            break; 
+        default: 
+            printf("The Chuck Router only handles ARP & IP Packets at this time, sorry!\n"); 
+
+    }
+
+
+
+    /* FREE UP MEMORY */
+    free(eth_hdr); 
+    free(rx_if); 
+    free(ip_hdr);
 
 }/* end sr_ForwardPacket */
-
