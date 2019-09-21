@@ -50,6 +50,71 @@ void sr_init(struct sr_instance* sr)
 
 } /* -- sr_init -- */
 
+/*  checks if I am the final destion of a packet 
+    if this is false, then i have to forward the packet 
+*/ 
+bool packet_is_directly_for_me() {
+    bool retval = false; 
+    return retval; 
+}
+
+bool packet_is_an_echo_reply() {
+    bool retval = false; 
+    return retval; 
+}
+
+void send_echo_reply() {
+
+}
+                
+bool packet_is_TCP_UDP() {
+    bool retval = false; 
+    return retval; 
+}
+
+void send_ICMP_port_unreachable() {
+
+}
+            
+sr_rt_t* LPM_Match() {
+    
+}
+
+void end_ICMP_net_unreachable() {
+
+}
+                
+bool ip_exists_in_ARP_cache() {
+    bool retval = false; 
+    return retval; 
+}
+
+void forward_to_next_hop() {
+
+}
+                    
+void send_ARP_request() {
+
+}
+
+bool packet_is_a_request_to_me() {
+    bool retval = false; 
+    return retval; 
+}
+
+void construct_and_send_ARP_reply() {
+
+}
+
+void cache_packet() {
+
+}
+
+void send_outstanding_packets() {
+
+}
+
+
 /*---------------------------------------------------------------------
  * Method: sr_handlepacket(uint8_t* p,char* interface)
  * Scope:  Global
@@ -128,6 +193,10 @@ void sr_handlepacket(struct sr_instance* sr,
                 send_outstanding_packets(); 
             }
             break; 
+        default:
+            printf("No clue what happened here\n");
+            fprintf(stderr, "Received something not IP or ARP\n"); 
+            break;
     }
 
 
