@@ -118,6 +118,8 @@ void sr_handlepacket(struct sr_instance* sr,
 
     struct sr_ip_hdr* ip_hdr = malloc(sizeof(sr_ip_hdr_t)); 
 
+    struct sr_icmp_hdr* icmp_hdr = malloc(sizeof(sr_icmp_hdr_t)); 
+
     printf("*** -> Received packet of length %d \n",len);
 
     /* Decide what to do based on what type of packet you receive */
@@ -126,7 +128,7 @@ void sr_handlepacket(struct sr_instance* sr,
 
             break; 
         case ethertype_ip:
-            /* POTENTIAL SOURCE OF ERROR */
+            /* POTENTIAL SOURCE OF ERROR = PSOE*/
             memcpy(ip_hdr, packet + sizeof(sr_ethernet_hdr_t), sizeof(sr_ip_hdr_t));
             recd_ip_len = ip_hdr->ip_len;  
 
@@ -151,9 +153,31 @@ void sr_handlepacket(struct sr_instance* sr,
                 return;
             }
             
+            /* Packet for me? */
+            /* PSOE */
             if(ip_is_one_of_mine(sr, ip_hdr->ip_dst)) { /* this packet is intended for me! */ 
                 printf("Got a packet, intended for me\n");
-                printf("Dest from the header: %li\n", ip_hdr->ip_dst); 
+                printf("Dest from the header: %"PRIu32"\n", ip_hdr->ip_dst); 
+
+                /* ICMP messsage? */
+                if(ip_hdr->ip_p == ip_protocol_icmp) {
+                    memcpy(icmp_hdr, packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t), sizeof(sr_icmp_hdr_t)); 
+
+                    switch(icmp_hdr->type)
+                    {
+                        case 0: 
+                            printf("Received an ICMP echo reply\n"); 
+                            break;
+                        case 3: 
+                            printf("Received an ICMP Destination unreachable message\n"); 
+                            break; 
+                        case 8:
+                            printf("Received an ICMP echo request\n");
+                            /* Send an ICMP echo reply */  
+
+                    }
+                }
+
             }
             else { /* The packet is not for me, gotta forward it! */
 
