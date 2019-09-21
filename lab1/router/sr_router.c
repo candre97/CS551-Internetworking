@@ -86,41 +86,48 @@ void sr_handlepacket(struct sr_instance* sr,
     printf("*** -> Received packet of length %d \n",len);
 
     /* fill in code here */
-    check packet length, drop if too short
+    /* check packet length, drop if too short */
+    if(len < sizeof(sr_ethernet_hdr_t)) {
+        printf("Dropping Packet, too short\n"); 
+        fprintf(stderr, "Packet shorter than an eth header\n"); 
+    }
+
     print_hdrs(packet, len); 
 
-    switch(packettype) {
-        case IP packet: 
-            if(packet is directly for me) { 
-                if(packet is an echo reply) {
-                    send echo reply
+    switch(ethertype(packet)) {
+        case ethertype_ip: 
+            if(packet_is_directly_for_me()) { 
+                if(packet_is_an_echo_reply()) {
+                    send_echo_reply();
                 }
-                if(packet is TCP/UDP) {
-                    send ICMP port unreachable
+                else if(packet_is_TCP_UDP()) {
+                    send_ICMP_port_unreachable();
                 }
             }
             else { /* Packet is not for me */
-                if(!LPM Match) {
-                    send ICMP net unreachable
+                if(LPM_Match() == NULL) {
+                    send_ICMP_net_unreachable(); 
                 }
                 else { /* check ARP cache */
-                    if(ip exists in ARP cache) {
-                        forward the message to the next hop
+                    if(ip_exists_in_ARP_cache()) {
+                        forward_to_next_hop(); 
                     }
                     else {
-                        send ARP request
-                        repeat 5x (handled in sr_arpcache.c)
+                        send_ARP_request();
+                        /*repeat 5x (handled in sr_arpcache.c)*/
                     }
                 }
             }
-        case ARP Packet: 
-            if(packet is a request to me) {
-                construct an ARP reply and send it back
+            break; 
+        case ethertype_arp: 
+            if(packet_is_a_request_to_me()) {
+                construct_and_send_ARP_reply(); 
             }
             else { /* the packet is a reply to me */
-                cache it
-                go through my request queue and send outstanding packets
+                cache_packet(); 
+                send_outstanding_packets(); 
             }
+            break; 
     }
 
 
