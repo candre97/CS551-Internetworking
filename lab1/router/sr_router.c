@@ -186,15 +186,24 @@ void sr_handlepacket(struct sr_instance* sr,
 
                             /* fill the packet with the correct info */
 
-                            /* Ethernet packet filling */
-                            /* No need to waste time looking this stuff up, just bounce it back */
-                            
+                            /* Ethernet header filling */
+                            /* No need to waste time looking this stuff up, just bounce it back */                          
                             memcpy(er_eth_hdr->ether_dhost, eth_hdr->ether_shost, ETHER_ADDR_LEN * sizeof(uint8_t));
                             memcpy(er_eth_hdr->ether_shost, eth_hdr->ether_dhost, ETHER_ADDR_LEN * sizeof(uint8_t));
                             er_eth_hdr->ether_type = ethertype_ip; 
 
-
-
+                            /* IP header filling */
+/*                            memcpy(er_ip_hdr-> , ip_hdr-> , sizeof()); */                            er_ip_hdr->ip_hl = ip_hdr->ip_hl;
+                            er_ip_hdr->ip_v = ip_hdr->ip_tos;
+                            er_ip_hdr->ip_tos = ip_hdr->;
+                            er_ip_hdr->ip_len = ip_hdr->ip_len;
+                            er_ip_hdr->ip_id = ip_hdr-> ;   /* TODO: calculate new IP ID */
+                            er_ip_hdr->ip_off = ip_hdr->ip_off;
+                            er_ip_hdr->ip_ttl = ip_hdr->ip_ttl;
+                            er_ip_hdr->ip_p = ip_protocol_icmp; 
+                            er_ip_hdr->ip_sum = ip_hdr-> ; /* TODO: calculate new checksum */
+                            er_ip_hdr->ip_src = ip_hdr->ip_dst;
+                            er_ip_hdr->ip_dst = ip_hdr->ip_srt;
                             break; 
                     }
                 }
