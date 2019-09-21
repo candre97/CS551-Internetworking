@@ -150,10 +150,10 @@ void sr_handlepacket(struct sr_instance* sr,
                 printf("Routing table cannot hold IPv6 Addresses\n"); 
                 return;
             }
-
             
             if(ip_is_one_of_mine(sr, ip_hdr->ip_dst)) { /* this packet is intended for me! */ 
-
+                printf("Got a packet, intended for me\n");
+                printf("Dest from the header: %li\n", ip_hdr->ip_dst); 
             }
             else { /* The packet is not for me, gotta forward it! */
 
