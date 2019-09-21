@@ -71,6 +71,8 @@ bool ip_is_one_of_mine(struct sr_instance* in_sr_inst, unsigned long in_dest_ip)
     return retval; 
 }
 
+
+
 /*---------------------------------------------------------------------
  * Method: sr_handlepacket(uint8_t* p,char* interface)
  * Scope:  Global
@@ -103,8 +105,8 @@ void sr_handlepacket(struct sr_instance* sr,
     uint16_t recd_chk_sum = 0;
     uint16_t recd_ip_len = 0;
 
-    /* Get info out of the packet */
-    if (len > sizeof(sr_ethernet_hdr_t)) {
+    /* discard things that cannot be ethernet packets */
+    if (len < sizeof(sr_ethernet_hdr_t)) {
         printf("Packet is not long enough\n"); 
         return; 
     }
@@ -121,7 +123,7 @@ void sr_handlepacket(struct sr_instance* sr,
     struct sr_icmp_hdr* icmp_hdr = malloc(sizeof(sr_icmp_hdr_t)); 
 
     printf("*** -> Received packet of length %d \n",len);
-
+    printf("packet: %s\n", packet); 
     /* Decide what to do based on what type of packet you receive */
     switch(ethertype(packet)) { 
         case ethertype_arp:
@@ -163,7 +165,7 @@ void sr_handlepacket(struct sr_instance* sr,
                 if(ip_hdr->ip_p == ip_protocol_icmp) {
                     memcpy(icmp_hdr, packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t), sizeof(sr_icmp_hdr_t)); 
 
-                    switch(icmp_hdr->type)
+                    switch(icmp_hdr->icmp_type)
                     {
                         case 0: 
                             printf("Received an ICMP echo reply\n"); 
@@ -174,7 +176,10 @@ void sr_handlepacket(struct sr_instance* sr,
                         case 8:
                             printf("Received an ICMP echo request\n");
                             /* Send an ICMP echo reply */  
-
+                            uint8_t* er_packet = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)); 
+                            struct sr_ethernet_hdr_t* er_eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+                            struct sr_ip_hdr* er_ip_hdr = malloc(sizeof(sr_ip_hdr_t)); 
+                            break; 
                     }
                 }
 
