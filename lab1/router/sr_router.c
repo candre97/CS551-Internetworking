@@ -63,7 +63,14 @@ void sr_init(struct sr_instance* sr)
  * by sr_vns_comm.c that means do NOT delete either.  Make a copy of the
  * packet instead if you intend to keep it around beyond the scope of
  * the method call.
- *
+ * 
+ * 1) plan of action for take 2: sudo code
+ * 2) ping direct
+ * 3) packet forwarding
+ * 4) ARP stuff
+ * 5) Actually make functions this time you idiot
+ * Note to self: no code until pseudo code is finished
+ * USE fprintf(stderr, "whatever you wanna say"); for printing
  *---------------------------------------------------------------------*/
 
 void sr_handlepacket(struct sr_instance* sr,
@@ -71,13 +78,50 @@ void sr_handlepacket(struct sr_instance* sr,
         unsigned int len,
         char* interface/* lent */)
 {
-  /* REQUIRES */
-  assert(sr);
-  assert(packet);
-  assert(interface);
+    /* REQUIRES */
+    assert(sr);
+    assert(packet);
+    assert(interface);
 
-  printf("*** -> Received packet of length %d \n",len);
+    printf("*** -> Received packet of length %d \n",len);
 
-  /* fill in code here */
+    /* fill in code here */
+    check packet length, drop if too short
+    print_hdrs(packet, len); 
+
+    switch(packettype) {
+        case IP packet: 
+            if(packet is directly for me) { 
+                if(packet is an echo reply) {
+                    send echo reply
+                }
+                if(packet is TCP/UDP) {
+                    send ICMP port unreachable
+                }
+            }
+            else { /* Packet is not for me */
+                if(!LPM Match) {
+                    send ICMP net unreachable
+                }
+                else { /* check ARP cache */
+                    if(ip exists in ARP cache) {
+                        forward the message to the next hop
+                    }
+                    else {
+                        send ARP request
+                        repeat 5x (handled in sr_arpcache.c)
+                    }
+                }
+            }
+        case ARP Packet: 
+            if(packet is a request to me) {
+                construct an ARP reply and send it back
+            }
+            else { /* the packet is a reply to me */
+                cache it
+                go through my request queue and send outstanding packets
+            }
+    }
+
 
 }/* end sr_ForwardPacket */
