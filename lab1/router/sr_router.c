@@ -112,7 +112,7 @@ void sr_handlepacket(struct sr_instance* sr,
     }
 
     /* Extract the ethernet header from the message */
-    struct sr_ethernet_hdr_t* eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+    struct sr_ethernet_hdr* eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
     memcpy(eth_hdr, packet, sizeof(sr_ethernet_hdr_t)); 
 
     struct sr_if* rx_if = malloc(sizeof(struct sr_if)); 
@@ -156,7 +156,8 @@ void sr_handlepacket(struct sr_instance* sr,
             }
             
             /* Packet for me? */
-            /* PSOE */
+            /* PSOE, perhaps I should just check against my own IP address...
+            */
             if(ip_is_one_of_mine(sr, ip_hdr->ip_dst)) { /* this packet is intended for me! */ 
                 printf("Got a packet, intended for me\n");
                 printf("Dest from the header: %"PRIu32"\n", ip_hdr->ip_dst); 
@@ -175,10 +176,25 @@ void sr_handlepacket(struct sr_instance* sr,
                             break; 
                         case 8:
                             printf("Received an ICMP echo request\n");
-                            /* Send an ICMP echo reply */  
+                            /* Send an ICMP echo reply */ 
+
+                            /* Create some headers for the packet */ 
                             uint8_t* er_packet = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)); 
-                            struct sr_ethernet_hdr_t* er_eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+                            struct sr_ethernet_hdr* er_eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
                             struct sr_ip_hdr* er_ip_hdr = malloc(sizeof(sr_ip_hdr_t)); 
+                            struct sr_icmp_hdr* er_icmp_hdr = malloc(sizeof(sr_icmp_hdr_t)); 
+
+                            /* fill the packet with the correct info */
+
+                            /* Ethernet packet filling */
+                            /* No need to waste time looking this stuff up, just bounce it back */
+                            
+                            memcpy(er_eth_hdr->ether_dhost, eth_hdr->ether_shost, ETHER_ADDR_LEN * sizeof(uint8_t));
+                            memcpy(er_eth_hdr->ether_shost, eth_hdr->ether_dhost, ETHER_ADDR_LEN * sizeof(uint8_t));
+                            er_eth_hdr->ether_type = ethertype_ip; 
+
+
+
                             break; 
                     }
                 }
@@ -200,4 +216,5 @@ void sr_handlepacket(struct sr_instance* sr,
     free(eth_hdr); 
     free(rx_if); 
     free(ip_hdr);
+    free(icmp_hdr); 
 }
