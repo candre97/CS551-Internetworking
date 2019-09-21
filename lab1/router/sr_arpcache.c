@@ -45,7 +45,7 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
     time_t curtime = time(NULL);
     /* char* eth_frame; */
     /* loop through outstanding requests */
-    struct sr_arpreq *req; 
+    struct sr_arpreq *req;/* = malloc(sizeof(sr_arpreq));*/ 
     for (req = sr->cache.requests; req != NULL; req = req->next) {
         curtime = time(NULL);
 
