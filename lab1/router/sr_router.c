@@ -208,28 +208,59 @@ void send_ARP_request() {
 bool packet_is_a_request_to_me(sr_arp_hdr_t* arp_hdr) {
     
     bool retval = false; 
-    /*
-    sr_arp_hdr_t* arp_hdr = malloc(sizeof(sr_arp_hdr_t)); 
-    memcpy(arp_hdr, (sr_arp_hdr_t* )pac_at_arp_hdr, sizeof(sr_arp_hdr_t)); 
-    
-    print_hdr_arp(pac_at_arp_hdr); */
-    print_hdr_arp((uint8_t* ) arp_hdr); 
 
+    print_hdr_arp((uint8_t* ) arp_hdr); 
+    /* Was having lots of trouble here before realizing I had to do ntohs
     fprintf(stderr, "%i\n", ntohs(arp_hdr->ar_op)); 
-    fprintf(stderr, "%i\n", arp_op_request); 
+    fprintf(stderr, "%i\n", arp_op_request); */
 
     if(ntohs(arp_hdr->ar_op) == arp_op_request) {
         fprintf(stderr, "Request to me\n");
         retval = true; 
     }
 
-    /*free(arp_hdr); */
-
     return retval; 
 }
 
-void construct_and_send_ARP_reply() {
+/* 
+    Borrow the packet, make a copy, change around some variables, and send it!!
+*/
+void construct_and_send_ARP_reply(struct sr_instance* sr, uint8_t* packet, char* interface) {
+    /* Extract the ethernet header from the message */
+    struct sr_ethernet_hdr* eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+    memcpy(eth_hdr, packet, sizeof(sr_ethernet_hdr_t)); 
 
+    struct sr_arp_hdr* arp_hdr = malloc(sizeof(sr_arp_hdr_t));
+    memcpy(arp_hdr, packet + sizeof(sr_ethernet_hdr_t), sizeof(sr_arp_hdr_t));
+
+    /* Create some headers for the new packet */ 
+    uint8_t* ar_packet = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t) + sizeof(sr_icmp_hdr_t)); 
+    struct sr_ethernet_hdr* ar_eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+    struct sr_arp_hdr* ar_arp_hdr = malloc(sizeof(sr_arp_hdr_t)); 
+
+    /* Ethernet header filling */
+    /* No need to waste time looking this stuff up, just bounce it back */                          
+    memcpy(ar_eth_hdr->ether_dhost, eth_hdr->ether_shost, ETHER_ADDR_LEN * sizeof(uint8_t));
+    memcpy(ar_eth_hdr->ether_shost, eth_hdr->ether_dhost, ETHER_ADDR_LEN * sizeof(uint8_t));
+    ar_eth_hdr->ether_type = ethertype_arp; 
+
+    /* Assemble the packet TODO */
+    memcpy(ar_packet, ar_eth_hdr, sizeof(sr_ethernet_hdr_t)); 
+    memcpy(ar_packet + sizeof(sr_ethernet_hdr_t), ar_arp_hdr, sizeof(sr_arp_hdr_t)); 
+
+    print_hdr_eth((uint8_t* ) ar_eth_hdr); 
+    print_hdr_arp((uint8_t* ) ar_arp_hdr); 
+
+    /* Routing is straight forward, echo back on same interface */
+    sr_send_packet(sr, (uint8_t*) ar_packet, sizeof(ar_packet), interface); 
+
+    free(eth_hdr); 
+    free(arp_hdr); 
+
+    free(ar_eth_hdr); 
+    free(ar_arp_hdr); 
+
+    free(ar_packet); 
 }
 
 void cache_packet() {
@@ -294,7 +325,17 @@ void sr_handlepacket(struct sr_instance* sr,
             /* Check if I need to forward the packet or not */
             fprintf(stderr, "Got an IP Packet\n"); 
 
-            /* TODO: CRC check */
+            /* Checksum Stuff! */
+            sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t* )(packet + sizeof(struct sr_ethernet_hdr));
+            uint16_t calcd_chk_sum = cksum(ip_hdr, ip_hdr->ip_len); 
+            uint16_t recd_chk_sum = ip_hdr->ip_sum; 
+
+            /* Verify checksum */
+            if(recd_chk_sum != calcd_chk_sum) {
+                printf("Checksum Error, Dropping packet\n"); 
+                printf("From Packet: %i, Calculated: %i\n", recd_chk_sum, calcd_chk_sum); 
+                return; 
+            }
 
             if(packet_is_directly_for_me(sr, (sr_ip_hdr_t* ) (packet + sizeof(struct sr_ethernet_hdr)))) { 
                 
@@ -326,9 +367,10 @@ void sr_handlepacket(struct sr_instance* sr,
         case ethertype_arp: 
             fprintf(stderr, "Got an ARP Packet\n"); 
             sr_arp_hdr_t* arp_hdr = (sr_arp_hdr_t* )(packet + sizeof(struct sr_ethernet_hdr));
+
             if(packet_is_a_request_to_me(arp_hdr)) {
-                fprintf(stderr, "Received a request\n"); 
-                construct_and_send_ARP_reply(); 
+                /*fprintf(stderr, "Received a request\n"); */
+                construct_and_send_ARP_reply(sr, packet, interface); 
             }
             else { /* the packet is a reply to me */
                 cache_packet(); 
