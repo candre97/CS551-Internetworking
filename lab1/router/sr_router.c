@@ -209,7 +209,7 @@ bool packet_is_a_request_to_me(sr_arp_hdr_t* arp_hdr) {
     
     bool retval = false; 
 
-    print_hdr_arp((uint8_t* ) arp_hdr); 
+    /*print_hdr_arp((uint8_t* ) arp_hdr); */
     /* Was having lots of trouble here before realizing I had to do ntohs
     fprintf(stderr, "%i\n", ntohs(arp_hdr->ar_op)); 
     fprintf(stderr, "%i\n", arp_op_request); */
@@ -230,36 +230,63 @@ void construct_and_send_ARP_reply(struct sr_instance* sr, uint8_t* packet, char*
     struct sr_ethernet_hdr* eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
     memcpy(eth_hdr, packet, sizeof(sr_ethernet_hdr_t)); 
 
+    /* Get the ARP header from the message */
     struct sr_arp_hdr* arp_hdr = malloc(sizeof(sr_arp_hdr_t));
     memcpy(arp_hdr, packet + sizeof(sr_ethernet_hdr_t), sizeof(sr_arp_hdr_t));
 
     /* Create some headers for the new packet */ 
-    uint8_t* ar_packet = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t) + sizeof(sr_icmp_hdr_t)); 
+    uint8_t* ar_packet = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)); 
     struct sr_ethernet_hdr* ar_eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
     struct sr_arp_hdr* ar_arp_hdr = malloc(sizeof(sr_arp_hdr_t)); 
+
+    struct sr_if* intf = malloc(sizeof(struct sr_if)); 
+    intf = sr_get_interface(sr, interface); 
+
+    if(intf == NULL) {
+        fprintf(stderr, "Interface non-existent\n");
+        free(eth_hdr); 
+        free(arp_hdr); 
+        free(intf); 
+        free(ar_eth_hdr); 
+        free(ar_arp_hdr); 
+        free(ar_packet); 
+        return; 
+    }
 
     /* Ethernet header filling */
     /* No need to waste time looking this stuff up, just bounce it back */                          
     memcpy(ar_eth_hdr->ether_dhost, eth_hdr->ether_shost, ETHER_ADDR_LEN * sizeof(uint8_t));
-    memcpy(ar_eth_hdr->ether_shost, eth_hdr->ether_dhost, ETHER_ADDR_LEN * sizeof(uint8_t));
-    ar_eth_hdr->ether_type = ethertype_arp; 
+    memcpy(ar_eth_hdr->ether_shost, (uint8_t* )intf->addr, ETHER_ADDR_LEN * sizeof(uint8_t));
+    ar_eth_hdr->ether_type = htons(ethertype_arp); 
+
+    /* Fill the ARP header */
+    ar_arp_hdr->ar_hrd = arp_hdr->ar_hrd; /* == ETHERNET!! */
+    ar_arp_hdr->ar_pro = arp_hdr->ar_pro; /* == IP */
+    ar_arp_hdr->ar_hln = arp_hdr->ar_hln; /* == 6 */
+    ar_arp_hdr->ar_pln = sizeof(uint32_t); /* == 4 */
+    ar_arp_hdr->ar_op = htons((unsigned short) 2); 
+    memcpy(ar_arp_hdr->ar_sha, intf->addr, ETHER_ADDR_LEN * sizeof(unsigned char));
+    ar_arp_hdr->ar_sip = intf->ip;             /* FIX THIS */
+    memcpy(ar_arp_hdr->ar_tha, arp_hdr->ar_sha, ETHER_ADDR_LEN * sizeof(unsigned char));
+    ar_arp_hdr->ar_tip = arp_hdr->ar_sip; 
 
     /* Assemble the packet TODO */
     memcpy(ar_packet, ar_eth_hdr, sizeof(sr_ethernet_hdr_t)); 
     memcpy(ar_packet + sizeof(sr_ethernet_hdr_t), ar_arp_hdr, sizeof(sr_arp_hdr_t)); 
 
+    /*fprintf(stderr, "HEADERS THAT I JUST MADE:\n");
     print_hdr_eth((uint8_t* ) ar_eth_hdr); 
-    print_hdr_arp((uint8_t* ) ar_arp_hdr); 
+    print_hdr_arp((uint8_t* ) ar_arp_hdr); */
 
+    fprintf(stderr, "Sending an ARP reply\n");
     /* Routing is straight forward, echo back on same interface */
-    sr_send_packet(sr, (uint8_t*) ar_packet, sizeof(ar_packet), interface); 
+    sr_send_packet(sr, (uint8_t*) ar_packet, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t), interface); 
 
     free(eth_hdr); 
     free(arp_hdr); 
-
+    free(intf); 
     free(ar_eth_hdr); 
     free(ar_arp_hdr); 
-
     free(ar_packet); 
 }
 
@@ -327,9 +354,14 @@ void sr_handlepacket(struct sr_instance* sr,
 
             /* Checksum Stuff! */
             sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t* )(packet + sizeof(struct sr_ethernet_hdr));
-            uint16_t calcd_chk_sum = cksum(ip_hdr, ip_hdr->ip_len); 
-            uint16_t recd_chk_sum = ip_hdr->ip_sum; 
 
+            /*fprintf(stderr, "IP HDRRRRRR: \n"); 
+            print_hdr_ip((uint8_t*)ip_hdr); */
+
+            uint16_t recd_chk_sum = ip_hdr->ip_sum; 
+            ip_hdr->ip_sum = 0; 
+            uint16_t calcd_chk_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t)); 
+            
             /* Verify checksum */
             if(recd_chk_sum != calcd_chk_sum) {
                 printf("Checksum Error, Dropping packet\n"); 
