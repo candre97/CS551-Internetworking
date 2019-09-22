@@ -22,6 +22,8 @@
 #include "sr_arpcache.h"
 #include "sr_utils.h"
 
+int ip_id_num = 0;
+
 /*---------------------------------------------------------------------
  * Method: sr_init(void)
  * Scope:  Global
@@ -74,8 +76,7 @@ bool packet_is_directly_for_me(struct sr_instance* sr, struct sr_ip_hdr* ip_hdr)
     -- checks if it is ICMP
     -- checks if that ICMP packet is an echo request
 */
-bool packet_is_an_echo_req(uint8_t in_pac) {
-    bool retval = false; 
+bool packet_is_an_echo_req(uint8_t* in_pac) {
 
     struct sr_ip_hdr* ip_hdr = malloc(sizeof(sr_ip_hdr_t)); 
     struct sr_icmp_hdr* icmp_hdr = malloc(sizeof(sr_icmp_hdr_t));
@@ -83,20 +84,94 @@ bool packet_is_an_echo_req(uint8_t in_pac) {
 
     if(ip_hdr->ip_tos != ip_protocol_icmp) {
         fprintf(stderr, "Received an IP packet that is not an ICMP message\n");
-        return retval; 
+        free(ip_hdr); 
+        free(icmp_hdr); 
+        return false; 
     }
+
     memcpy(icmp_hdr, in_pac + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t), sizeof(sr_icmp_hdr_t)); 
 
-    
+    if(icmp_hdr->icmp_type == 8) {
+        fprintf(stderr, "Received an ICMP echo request\n");
+        free(ip_hdr); 
+        free(icmp_hdr); 
+        return true;
+    }
 
 
-
-
-    return retval; 
+    return false; 
 }
 
-void send_echo_reply() {
+/* 
+    Echoes back on the same interface, using much of the same data that was in the original packet
+    A lot of this function was borrowed from my first unorganized attempt at this lab
+*/
+void send_echo_reply(struct sr_instance* sr, uint8_t* packet, char* interface) {
+    
+    /* Extract the ethernet header from the message */
+    struct sr_ethernet_hdr* eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+    memcpy(eth_hdr, packet, sizeof(sr_ethernet_hdr_t)); 
 
+    struct sr_ip_hdr* ip_hdr = malloc(sizeof(sr_ip_hdr_t));
+    memcpy(ip_hdr, packet + sizeof(sr_ethernet_hdr_t), sizeof(sr_ip_hdr_t));
+
+    struct sr_if* rx_if = malloc(sizeof(struct sr_if)); 
+    rx_if = sr_get_interface(sr, interface); 
+
+    /* Create some headers for the new packet */ 
+    uint8_t* er_packet = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)); 
+    struct sr_ethernet_hdr* er_eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+    struct sr_ip_hdr* er_ip_hdr = malloc(sizeof(sr_ip_hdr_t)); 
+    struct sr_icmp_hdr* er_icmp_hdr = malloc(sizeof(sr_icmp_hdr_t)); 
+
+    /* fill the packet with the correct info */
+
+    /* Ethernet header filling */
+    /* No need to waste time looking this stuff up, just bounce it back */                          
+    memcpy(er_eth_hdr->ether_dhost, eth_hdr->ether_shost, ETHER_ADDR_LEN * sizeof(uint8_t));
+    memcpy(er_eth_hdr->ether_shost, eth_hdr->ether_dhost, ETHER_ADDR_LEN * sizeof(uint8_t));
+    er_eth_hdr->ether_type = ethertype_ip; 
+
+    /* IP header filling */
+    er_ip_hdr->ip_hl = ip_hdr->ip_hl;
+    er_ip_hdr->ip_v = ip_hdr->ip_v;
+    er_ip_hdr->ip_tos = ip_hdr->ip_tos;
+    er_ip_hdr->ip_len = ip_hdr->ip_len;
+    er_ip_hdr->ip_id = htons(ip_id_num++);   /* TODO: calculate new IP ID */
+    er_ip_hdr->ip_off = ip_hdr->ip_off;
+    er_ip_hdr->ip_ttl = ip_hdr->ip_ttl;
+    er_ip_hdr->ip_p = ip_protocol_icmp; 
+    er_ip_hdr->ip_src = ip_hdr->ip_dst;
+    er_ip_hdr->ip_dst = ip_hdr->ip_src; 
+    er_ip_hdr->ip_sum = 0; 
+    uint16_t er_ip_sum = cksum(er_ip_hdr, er_ip_hdr->ip_len); 
+    er_ip_hdr->ip_sum = er_ip_sum; 
+
+    /* ICMP fill up */
+    er_icmp_hdr->icmp_type = 0; 
+    er_icmp_hdr->icmp_code = 0; 
+    er_icmp_hdr->icmp_sum = 0;
+    uint16_t er_icmp_sum = cksum(er_icmp_hdr, 16); 
+    er_icmp_hdr->icmp_sum = er_icmp_sum; 
+
+    /* Assemble the packet */
+    memcpy(er_packet, er_eth_hdr, sizeof(sr_ethernet_hdr_t)); 
+    memcpy(er_packet + sizeof(sr_ethernet_hdr_t), er_ip_hdr, sizeof(sr_ip_hdr_t)); 
+    memcpy(er_packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t), er_icmp_hdr, sizeof(sr_icmp_hdr_t)); 
+
+    /* Routing is straight forward, echo back on same interface */
+    sr_send_packet(sr, (uint8_t*) er_packet, sizeof(er_packet), interface); 
+
+    free(rx_if); 
+
+    free(eth_hdr); 
+    free(ip_hdr); 
+
+    free(er_eth_hdr); 
+    free(er_ip_hdr); 
+    free(er_icmp_hdr); 
+
+    free(er_packet); 
 }
                 
 bool packet_is_TCP_UDP() {
@@ -130,8 +205,26 @@ void send_ARP_request() {
 
 }
 
-bool packet_is_a_request_to_me() {
+bool packet_is_a_request_to_me(sr_arp_hdr_t* arp_hdr) {
+    
     bool retval = false; 
+    /*
+    sr_arp_hdr_t* arp_hdr = malloc(sizeof(sr_arp_hdr_t)); 
+    memcpy(arp_hdr, (sr_arp_hdr_t* )pac_at_arp_hdr, sizeof(sr_arp_hdr_t)); 
+    
+    print_hdr_arp(pac_at_arp_hdr); */
+    print_hdr_arp((uint8_t* ) arp_hdr); 
+
+    fprintf(stderr, "%i\n", ntohs(arp_hdr->ar_op)); 
+    fprintf(stderr, "%i\n", arp_op_request); 
+
+    if(ntohs(arp_hdr->ar_op) == arp_op_request) {
+        fprintf(stderr, "Request to me\n");
+        retval = true; 
+    }
+
+    /*free(arp_hdr); */
+
     return retval; 
 }
 
@@ -188,21 +281,30 @@ void sr_handlepacket(struct sr_instance* sr,
     if(len < sizeof(sr_ethernet_hdr_t)) {
         printf("Dropping Packet, too short\n"); 
         fprintf(stderr, "Packet shorter than an eth header\n"); 
+        return; 
     }
 
     print_hdrs(packet, len); 
 
+    fprintf(stderr, "ETHERTYPE: %i\n", ethertype(packet));
+    fprintf(stderr, "ETHERTYPE_IP: %i\n", ethertype_ip);
+
     switch(ethertype(packet)) {
         case ethertype_ip: 
             /* Check if I need to forward the packet or not */
+            fprintf(stderr, "Got an IP Packet\n"); 
+
+            /* TODO: CRC check */
+
             if(packet_is_directly_for_me(sr, (sr_ip_hdr_t* ) (packet + sizeof(struct sr_ethernet_hdr)))) { 
                 
                 fprintf(stderr, "I am end destination of this IP packet\n"); 
 
                 if(packet_is_an_echo_req(packet)) {
-                    send_echo_reply();
+                    send_echo_reply(sr, packet, interface);
                 }
-                else if(packet_is_TCP_UDP()) {
+                else/* if(packet_is_TCP_UDP())*/ {
+                    /* Only handling echo reply right now */
                     send_ICMP_port_unreachable();
                 }
             }
@@ -222,7 +324,10 @@ void sr_handlepacket(struct sr_instance* sr,
             }
             break; 
         case ethertype_arp: 
-            if(packet_is_a_request_to_me()) {
+            fprintf(stderr, "Got an ARP Packet\n"); 
+            sr_arp_hdr_t* arp_hdr = (sr_arp_hdr_t* )(packet + sizeof(struct sr_ethernet_hdr));
+            if(packet_is_a_request_to_me(arp_hdr)) {
+                fprintf(stderr, "Received a request\n"); 
                 construct_and_send_ARP_reply(); 
             }
             else { /* the packet is a reply to me */
