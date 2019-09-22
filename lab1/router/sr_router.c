@@ -69,8 +69,29 @@ bool packet_is_directly_for_me(struct sr_instance* sr, struct sr_ip_hdr* ip_hdr)
     return retval; 
 }
 
-bool packet_is_an_echo_reply() {
+/*
+    returns true if the packet passed in is an echo request
+    -- checks if it is ICMP
+    -- checks if that ICMP packet is an echo request
+*/
+bool packet_is_an_echo_req(uint8_t in_pac) {
     bool retval = false; 
+
+    struct sr_ip_hdr* ip_hdr = malloc(sizeof(sr_ip_hdr_t)); 
+    struct sr_icmp_hdr* icmp_hdr = malloc(sizeof(sr_icmp_hdr_t));
+    memcpy(ip_hdr, in_pac + sizeof(sr_ethernet_hdr_t), sizeof(sr_ip_hdr_t));
+
+    if(ip_hdr->ip_tos != ip_protocol_icmp) {
+        fprintf(stderr, "Received an IP packet that is not an ICMP message\n");
+        return retval; 
+    }
+    memcpy(icmp_hdr, in_pac + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t), sizeof(sr_icmp_hdr_t)); 
+
+    
+
+
+
+
     return retval; 
 }
 
@@ -173,8 +194,12 @@ void sr_handlepacket(struct sr_instance* sr,
 
     switch(ethertype(packet)) {
         case ethertype_ip: 
+            /* Check if I need to forward the packet or not */
             if(packet_is_directly_for_me(sr, (sr_ip_hdr_t* ) (packet + sizeof(struct sr_ethernet_hdr)))) { 
-                if(packet_is_an_echo_reply()) {
+                
+                fprintf(stderr, "I am end destination of this IP packet\n"); 
+
+                if(packet_is_an_echo_req(packet)) {
                     send_echo_reply();
                 }
                 else if(packet_is_TCP_UDP()) {
