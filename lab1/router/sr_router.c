@@ -50,11 +50,22 @@ void sr_init(struct sr_instance* sr)
 
 } /* -- sr_init -- */
 
-/*  checks if I am the final destion of a packet 
-    if this is false, then i have to forward the packet 
+/*  
+    Specifically for IP packets:
+    -- checks if I am the final destion of a packet 
+    -- if this is false, then I have to forward the packet 
 */ 
-bool packet_is_directly_for_me() {
+bool packet_is_directly_for_me(struct sr_instance* sr, struct sr_ip_hdr* ip_hdr) {
+    
     bool retval = false; 
+    uint32_t dest_addr = ip_hdr->ip_dst; 
+
+    struct sr_if* inf;
+    for (inf = sr->if_list; inf != NULL; inf = inf->next) {
+        if (inf->ip == dest_addr) {
+            retval = true;
+        }
+    }
     return retval; 
 }
 
@@ -76,11 +87,12 @@ void send_ICMP_port_unreachable() {
 
 }
             
-sr_rt_t* LPM_Match() {
-    
+struct sr_rt* LPM_Match() {
+    struct sr_rt* retval = NULL; 
+    return retval; 
 }
 
-void end_ICMP_net_unreachable() {
+void send_ICMP_net_unreachable() {
 
 }
                 
@@ -161,7 +173,7 @@ void sr_handlepacket(struct sr_instance* sr,
 
     switch(ethertype(packet)) {
         case ethertype_ip: 
-            if(packet_is_directly_for_me()) { 
+            if(packet_is_directly_for_me(sr, (sr_ip_hdr_t* ) (packet + sizeof(struct sr_ethernet_hdr)))) { 
                 if(packet_is_an_echo_reply()) {
                     send_echo_reply();
                 }
