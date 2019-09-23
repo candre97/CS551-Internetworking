@@ -49,34 +49,36 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
     for (req = sr->cache.requests; req != NULL; req = req->next) {
         curtime = time(NULL);
 
-        if (req->times_sent >= 5) {
+        if (req->sent < 5) {
+            if (difftime(curtime, req->sent) > 1) {
+                /* this request hasn't sent in the past second and isn't expired so resend it*/
+                struct sr_if* dest_if = sr->if_list; 
+                struct sr_packet *pac = req->packets; 
+                /* Loop through all the packets waiting on this request */
+                for(pac; pac != NULL; pac = pac->next) {
+                    /* resend this ARP request, dest = unknown */
+                    construct_and_send_ARP(sr, (uint16_t ) 1, (uint8_t*) pac->buf, (char*) pac->iface); 
+                }
+
+                /* increment times_sent after sending the request again, update sent time to now. */
+                req->times_sent += 1; 
+                req->sent = time(NULL); 
+            }
+        }
+        else {
             /* this request has already been sent 5 times
             reply to all senders waiting on this reply with a DEST HOST UNREACHABLE
             loop through the senders waiting on a reply from this ARP request */
-            struct sr_packet *pac; 
-
-            for (pac = req->packets; pac != NULL; pac = pac->next) {
-
-                /* send an ICMP packet for DEST HOST UNREACHABLE type=3, code=1*/
-                struct sr_rt *route;
-                struct sr_if *destIF; 
-                /* Packet = [Ethernet header][IP header][ICMPHeader][Data,size=28]*/
-                uint8_t *final_packet = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t) + ICMP_DATA_SIZE);            
-                
-
-
-
+            struct sr_packet *pac = req->packets; 
+            
+            /* loop through all the packets tied to this request */
+            for (pac; pac != NULL; pac = pac->next) {
+                /* send an ICMP packet DEST HOST UNREACHABLE type=3, code=1*/
+                send_ICMP_type3(sr, pac->buf, pac->iface, (uint8_t)(1)); 
             }
-            sr_arpreq_destroy(&sr->cache, req); 
+            sr_arpreq_destroy(&sr->cache, req);
         }
-        else if ((req->sent == 0) || (difftime(curtime, req->sent) > 1)) {
-            /* this request has never sent or hasn't sent in the past second so resend it*/
-
-            /* send the request again. */
-
-            /* increment times_sent after sending the request again. */
-            req->times_sent += 1; 
-        }
+        
     }
 }
 
