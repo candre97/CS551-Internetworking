@@ -570,7 +570,7 @@ int sr_send_packet(struct sr_instance* sr /* borrowed */,
     /* REQUIRES */
     assert(sr);
     assert(buf);
-    assert(iface);
+   /* assert(iface);*/
 
     /* don't waste my time ... */
     if ( len < sizeof(struct sr_ethernet_hdr) ){
