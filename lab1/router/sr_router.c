@@ -208,7 +208,6 @@ void send_echo_reply(struct sr_instance* sr, uint8_t* packet, char* interface) {
     struct sr_ip_hdr* er_ip_hdr = malloc(sizeof(sr_ip_hdr_t)); 
     struct sr_icmp_hdr* er_icmp_hdr = malloc(sizeof(sr_icmp_hdr_t)); 
 
-    uint8_t* eth_addr = malloc(ETHER_ADDR_LEN * sizeof(unsigned char)); 
     struct sr_arpentry* dest_entry = sr_arpcache_lookup(&sr->cache, ip_hdr->ip_dst); /* Can we send to the guy who sent to us??*/
 
     /* Ethernet header filling */
@@ -469,30 +468,41 @@ void sr_handlepacket(struct sr_instance* sr,
                 return; 
             }
 
+            dest_entry = sr_arpcache_lookup(&sr->cache, ip_hdr->ip_dst); /* Can we send to the guy who sent to us??*/
+            if(dest_entry == NULL) {
+                struct sr_ethernet_hdr* eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+                memcpy(eth_hdr, packet, sizeof(sr_ethernet_hdr_t)); 
+                struct sr_arpreq* outstanding_reqs = sr_arpcache_insert(&sr->cache, eth_hdr->ether_shost, ip_hdr->ip_src); 
+                for(outstanding_reqs; outstanding_reqs != NULL; outstanding_reqs = outstanding_reqs->next) {
+                    if (outstanding_reqs->ip == ip_hdr->ip_src) {
+                        /* send outstanding requests */
+                        construct_and_send_ARP(sr, (uint16_t) 1, packet, interface); 
+                    }
+                }
+            }
+
             if(packet_is_directly_for_me(sr, (sr_ip_hdr_t* ) (packet + sizeof(struct sr_ethernet_hdr)))) { 
                 
                 fprintf(stderr, "I am end destination of this IP packet\n"); 
 
                 if(packet_is_an_echo_req(packet)) {
                     
-                    dest_entry = sr_arpcache_lookup(&sr->cache, ip_hdr->ip_dst); /* Can we send to the guy who sent to us??*/
-
                     if(dest_entry != NULL) {
                         free(dest_entry);
                         send_echo_reply(sr, packet, interface);
                     }
-                    else { /* send an ARP request */
+                    /*else { 
                         construct_and_send_ARP(sr, (uint16_t) 1, packet, interface);
-                    }
+                    }*/
                 }
                 else/* if(packet_is_TCP_UDP())*/ {
                     /* Only handling echo reply right now */
                     if(dest_entry != NULL) {
-                            send_ICMP_type3(sr, packet, interface, (uint8_t)(1)); 
-                        }
-                        else { /* send an ARP request */
+                        send_ICMP_type3(sr, packet, interface, (uint8_t)(1)); 
+                    }
+                        /*else { /* send an ARP request 
                             construct_and_send_ARP(sr, (uint16_t) 1, packet, interface);
-                        }
+                        }*/
                 }
             }   
             
@@ -518,14 +528,20 @@ void sr_handlepacket(struct sr_instance* sr,
             uint8_t arp_op_code = get_op_code(arp_hdr);
             
             /* If you get an ARP packet from someone you haven't talked to yet, add them to your cache*/
-            dest_entry = sr_arpcache_lookup(&sr->cache, ip_hdr->ip_dst);
+            dest_entry = sr_arpcache_lookup(&sr->cache, arp_hdr->ar_sip);
             if(dest_entry == NULL) {
                 struct sr_arpreq* outstanding_reqs = sr_arpcache_insert(&sr->cache, arp_hdr->ar_sha, arp_hdr->ar_sip); 
+                for(outstanding_reqs; outstanding_reqs != NULL; outstanding_reqs = outstanding_reqs->next) {
+                    if (outstanding_reqs->ip == arp_hdr->ar_sip) {
+                        /* send outstanding requests */
+                        construct_and_send_ARP(sr, (uint16_t) 1, packet, interface); 
+                    }
+                }
             }
 
             if(arp_op_code == arp_op_request) {
                 /*fprintf(stderr, "Received a request\n"); */
-                dest_entry = sr_arpcache_lookup(&sr->cache, ip_hdr->ip_dst); /* Can we send to the guy who sent to us??*/
+                dest_entry = sr_arpcache_lookup(&sr->cache, arp_hdr->ar_sip); /* Can we send to the guy who sent to us??*/
                 
                 if(dest_entry != NULL) {
                     construct_and_send_ARP(sr, (uint16_t) 2, packet, interface);
