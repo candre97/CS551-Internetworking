@@ -117,6 +117,37 @@ void create_ip_hdr(uint8_t ttl, uint16_t sum, uint32_t src, uint32_t dest, sr_ip
     ip_hdr->ip_sum = cksum((uint8_t* )ip_hdr, sizeof(sr_ip_hdr_t)); 
 }
 
+void handle_ip_packet_for_me(sr_instance_t* sr, uint8_t* packet, char* interface, unsigned int len) {
+    
+    sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t* )(packet + sizeof(struct sr_ethernet_hdr));
+    uint8_t protocol = ip_hdr->ip_p; 
+    
+    switch(protocol) {
+        case ip_protocol_icmp: /* get type, if its an echo request, send an echo reply if you can */
+            sr_arp_entry_t* dest_entry = sr_arpcache_lookup(&sr.cache, ip_hdr->ip_src); 
+            if(dest_entry == NULL) {
+                /* Create an ARP request */
+                sr_arpcache_queuereq((struct sr_arpcache*) &sr->cache,
+                                       (uint32_t) ip_hdr->ip_src,
+                                       (uint8_t*) packet,           /* borrowed */
+                                       (unsigned int) len,
+                                       (char*) interface);
+            }
+            else { /* You can send here so send an echo reply */
+                sr_ethernet_hdr_t er_eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+                sr_ip_hdr_t* er_ip_hdr = malloc(sizeof(sr_ip_hdr_t));
+                sr_icmp_hdr_t* er_icmp_hdr = malloc(sizeof(sr_icmp_hdr_t)); 
+                
+            }
+            
+            break;
+        default:  /* otherwise send ICMP port unreachable */
+            fprintf(stderr, "Received an IP Packet that is not ICMP, probably TCP/UDP\n"); 
+
+            break
+    }
+}
+
 
 void forward_packet(sr_instance_t* sr, uint8_t* packet, char* interface, unsigned int len, uint32_t dest_addr) {
     /*if(LPM_Match() == NULL) {
@@ -138,7 +169,7 @@ void send_ip_packet() {
     /* Make sure we know the hardware address and its valid */
 
     /* Otherwise add an ARP request to the ARP request queue */ 
-
+    create_ip_hdr(uint8_t ttl, uint16_t sum, uint32_t src, uint32_t dest, er_ip_hdr, unsigned int data_size); 
 }
 
 /* Handles receiving an IP packet and moves responsibility over to other functions to do heavy lifting */
@@ -157,8 +188,11 @@ void receive_IP_packet(sr_instance_t* sr, uint8_t* packet, char* interface, unsi
         }
     }
 
+    inf = sr_get_interface(interface);
+
     /* Figure out if I am the final destionation of the packet */
-    unsigned long my_address = sr.sr_addr.sin_addr.s_addr; 
+    uint32_t my_address = inf->ip; 
+
     if(dest_addr == my_address) {
         fprintf(stderr, "DO NOT USE ATON\n", );
         handle_ip_packet_for_me(sr, packet, interface, len); 
@@ -210,7 +244,7 @@ void send_arp_reply(sr_instance_t* sr, uint8_t* packet, char* interface, unsigne
     fprintf(stderr, "PACKET THAT I JUST MADE:\n");
     print_hdrs((uint8_t* ) ar_packet, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)); 
 
-    sr_send_packet(sr, (uint8_t*) ar_packet, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t), (const char*) intf->name); 
+    sr_send_packet(sr, (uint8_t*) ar_packet, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t), (const char*) interface); 
 
     free(eth_hdr); 
     free(arp_hdr); 
