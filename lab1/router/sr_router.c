@@ -197,17 +197,18 @@ void send_arp_reply(sr_instance_t* sr, uint8_t* packet, char* interface, unsigne
     struct sr_if* intf = sr_get_interface(sr, interface); 
 
     /* Fill in the Ethernet header of your message */
-    memcpy(ar_eth_hdr->ether_dhost, eth_hdr->ether_shost, ETHER_ADDR_LEN * sizeof(uint8_t));
-    memcpy(ar_eth_hdr->ether_shost, (uint8_t* )intf->addr, ETHER_ADDR_LEN * sizeof(uint8_t));
-    ar_eth_hdr->ether_type = htons(ethertype_arp); 
+    create_eth_hdr((uint8_t*) eth_hdr->ether_shost, (uint8_t*) intf->addr, (uint16_t) ethertype_arp, ar_eth_hdr);
 
-    unsigned long my_address = sr.sr_addr.sin_addr.s_addr; /* == intf->ip*/
+    /* Create an ARP header for an ARP reply */
+    create_arp_hdr((unsigned short) 2, (unsigned char*) intf->addr, (uint32_t) intf->ip, (unsigned char*) arp_hdr->ar_sha, 
+        (uint32_t) arp_hdr->ar_sip, ar_ip_hdr); 
 
     /* Fill the ARP header */
+    memcpy(ar_packet, ar_eth_hdr, sizeof(sr_ethernet_hdr_t)); 
+    memcpy(ar_packet + sizeof(sr_ethernet_hdr_t), ar_arp_hdr, sizeof(sr_arp_hdr_t)); 
 
-    fprintf(stderr, "HEADERS THAT I JUST MADE:\n");
-    print_hdr_eth((uint8_t* ) ar_eth_hdr); 
-    print_hdr_arp((uint8_t* ) ar_arp_hdr);
+    fprintf(stderr, "PACKET THAT I JUST MADE:\n");
+    print_hdrs((uint8_t* ) ar_packet, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)); 
 
     sr_send_packet(sr, (uint8_t*) ar_packet, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t), (const char*) intf->name); 
 
