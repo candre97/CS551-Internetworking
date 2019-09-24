@@ -70,20 +70,51 @@ void create_eth_hdr(uint8_t* dest, uint8_t* src, uint16_t e_type, sr_ethernet_hd
 }
 
 /* Fills inputted ARP header with stuff */
-void create_arp_hdr(unsigned short op_code, unsigned char* t_hw_addr, uint32_t t_ip_addr, sr_ip_hdr_t* ip_hdr) {
-    
+void create_arp_hdr(unsigned short op_code, unsigned char* s_hw_addr, uint32_t s_ip_addr, unsigned char* t_hw_addr, uint32_t t_ip_addr, sr_ip_hdr_t* ip_hdr) {
+    arp_hdr->ar_hrd = htons(arp_hrd_ethernet); /* == ETHERNET!! */
+    arp_hdr->ar_pro = htons(ethertype_ip); /* TODO, verify this is really IP == IP */
+    arp_hdr->ar_hln = ETHER_ADDR_LEN * sizeof(uint8_t); /* == 6 */
+    arp_hdr->ar_pln = sizeof(uint32_t); /* == 4 */
+    arp_hdr->ar_op = htons(op_code); 
+    memcpy(arp_hdr->ar_sha, s_hw_addr, ETHER_ADDR_LEN * sizeof(unsigned char));
+    arp_hdr->ar_sip = htonl(s_ip_addr); 
+    memcpy(arp_hdr->ar_tha, t_hw_addr, ETHER_ADDR_LEN * sizeof(unsigned char));
+    arp_hdr->ar_tip = htonl(t_ip_addr); 
 }
 
 void create_icmp_hdr(uint8_t type, uint8_t code, uint16_t sum, sr_icmp_hdr_t* icmp_hdr) {
-
+    icmp_hdr->icmp_type = type; 
+    icmp_hdr->icmp_code = code;
+    icmp_hdr->icmp_sum = 0;
+    icmp_hdr->icmp_sum = cksum((uint8_t*) icmp_hdr, sizeof(sr_icmp_hdr_t)); 
 }
 
 void create_icmp_t3_hdr(uint8_t type, uint8_t code, uint16_t sum, uint8_t* data, sr_icmp_t3_hdr_t* icmp_hdr) {
-
+    icmp_hdr->icmp_type = type; 
+    icmp_hdr->icmp_code = code;
+    memcpy(icmp_hdr->data, data, ICMP_DATA_SIZE * sizeof(uint8_t)); 
+    icmp_hdr->icmp_sum = 0;
+    icmp_hdr->icmp_sum = cksum((uint8_t*) icmp_hdr, sizeof(sr_icmp_hdr_t)); 
 }
-
-void create_ip_hdr(uint8_t ttl, uint16_t sum, uint32_t dest, sr_ip_hdr_t* ip_hdr) {
-
+/* 
+    Here data_size will either be == sizeof(icmpt3_hdr_) or sizeof(icmp_hdr)
+    IP off assumes that you are going to be sending only short packets
+*/
+void create_ip_hdr(uint8_t ttl, uint16_t sum, uint32_t src, uint32_t dest, sr_ip_hdr_t* ip_hdr, unsigned int data_size) {
+    /* IP header filling */
+    /* TODO: change er_xxxx, er means echo reply */
+    ip_hdr->ip_hl = 4;
+    ip_hdr->ip_v = 4;
+    ip_hdr->ip_tos = 0; /* TODO: update based on what your receive */
+    ip_hdr->ip_len = htons((uint16_t)(sizeof(sr_ip_hdr_t) + data_size));
+    ip_hdr->ip_id = htons(ip_id_num++);   /* TODO: calculate new IP ID */
+    ip_hdr->ip_off = 0;
+    ip_hdr->ip_ttl = ttl;
+    ip_hdr->ip_p = ip_protocol_icmp; 
+    ip_hdr->ip_src = htonl(src);
+    ip_hdr->ip_dst = htonl(dest);
+    ip_hdr->ip_sum = 0; 
+    ip_hdr->ip_sum = cksum((uint8_t* )ip_hdr, sizeof(sr_ip_hdr_t)); 
 }
 
 
@@ -170,18 +201,9 @@ void send_arp_reply(sr_instance_t* sr, uint8_t* packet, char* interface, unsigne
     memcpy(ar_eth_hdr->ether_shost, (uint8_t* )intf->addr, ETHER_ADDR_LEN * sizeof(uint8_t));
     ar_eth_hdr->ether_type = htons(ethertype_arp); 
 
-    unsigned long my_address = sr.sr_addr.sin_addr.s_addr; 
+    unsigned long my_address = sr.sr_addr.sin_addr.s_addr; /* == intf->ip*/
 
     /* Fill the ARP header */
-    ar_arp_hdr->ar_hrd = arp_hdr->ar_hrd; /* == ETHERNET!! */
-    ar_arp_hdr->ar_pro = arp_hdr->ar_pro; /* == IP */
-    ar_arp_hdr->ar_hln = arp_hdr->ar_hln; /* == 6 */
-    ar_arp_hdr->ar_pln = sizeof(uint32_t); /* == 4 */
-    ar_arp_hdr->ar_op = htons((unsigned short) op_code); 
-    memcpy(ar_arp_hdr->ar_sha, intf->addr, ETHER_ADDR_LEN * sizeof(unsigned char));
-    ar_arp_hdr->ar_sip = (uint32_t) my_address;             /* FIX THIS */
-    memcpy(ar_arp_hdr->ar_tha, arp_hdr->ar_sha, ETHER_ADDR_LEN * sizeof(unsigned char));
-    ar_arp_hdr->ar_tip = arp_hdr->ar_sip; 
 
     fprintf(stderr, "HEADERS THAT I JUST MADE:\n");
     print_hdr_eth((uint8_t* ) ar_eth_hdr); 
