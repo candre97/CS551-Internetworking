@@ -307,7 +307,7 @@ void send_arp_message(struct sr_instance* sr, uint8_t* packet, char* interface, 
 }
 
 /* Takes in the unprocessed packet that is waiting to be dealt with, deals with it now that it can */
-void send_outstanding_packet(struct sr_packet* pac) {
+void send_outstanding_packet(struct sr_instance* sr,struct sr_packet* pac) {
     /* check packet type, fill in accordingly */
 
     sr_handlepacket((struct sr_instance*) sr,
@@ -371,7 +371,7 @@ void handle_arp_reply(sr_instance_t* sr, uint8_t* packet, char* interface, unsig
             struct sr_packet* pac = waiting->packets;
             /* Loop through all of the packets waiting on this request */
             for(pac; pac!= NULL; pac = pac->next) {
-                send_outstanding_packet(pac); 
+                send_outstanding_packet(sr, pac); 
             }
         }
     }
