@@ -59,7 +59,6 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
                     /* resend this ARP request, dest = unknown */
                     construct_and_send_ARP(sr, (uint16_t ) 1, (uint8_t*) pac->buf, (char*) pac->iface); 
                 }
-
                 /* increment times_sent after sending the request again, update sent time to now. */
                 req->times_sent += 1; 
                 req->sent = time(NULL); 
@@ -74,7 +73,32 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
             /* loop through all the packets tied to this request */
             for (pac; pac != NULL; pac = pac->next) {
                 /* send an ICMP packet DEST HOST UNREACHABLE type=3, code=1*/
-                send_ICMP_type3(sr, pac->buf, pac->iface, (uint8_t)(1)); 
+                sr_if_t* intf = sr_get_interface(pac->iface);
+                sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t* )(pac->buf + sizeof(struct sr_ip_hdr));
+
+                uint8_t* er_pac = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ethernet_hdr_t) + sizeof(sr_icmp_hdr_t)); 
+                struct sr_ethernet_hdr* er_eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+                struct sr_ip_hdr* er_ip_hdr = malloc(sizeof(sr_ip_hdr_t));
+                struct sr_icmp_t3_hdr* er_icmp_hdr = malloc(sizeof(sr_icmp_t3_hdr_t)); 
+
+                sr_if_t* inf = sr_get_interface(interface);
+
+                create_eth_hdr((uint8_t*) dest_entry->mac, (uint8_t*) intf->addr, (uint16_t) ethertype_ip, er_eth_hdr);
+                create_ip_hdr((uint8_t) ip_hdr->ip_ttl, (uint16_t) 0, (uint32_t) intf->ip, 
+                    (uint32_t) dest_entry->ip, er_ip_hdr, (unsigned int) sizeof(sr_icmp_hdr_t));
+                create_icmp_t3_hdr((uint8_t) 3, (uint8_t) 1, (uint16_t) 0, (uint8_t* ) ip_hdr, er_icmp_hdr);
+
+                memcpy(er_pac, er_eth_hdr, sizeof(sr_ethernet_hdr_t)); 
+                memcpy(er_pac + sizeof(sr_ethernet_hdr_t), er_ip_hdr, sizeof(sr_ip_hdr_t)); 
+                memcpy(er_pac + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t), er_icmp_hdr, sizeof(sr_icmp_t3_hdr_t)); 
+
+                fprintf(stderr, "ICMP HOST UNREACHABLE PACKET:\n");
+                print_hdrs((uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
+                sr_send_packet(sr, (uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t), interface);
+                free(er_eth_hdr);
+                free(er_ip_hdr); 
+                free(er_icmp_hdr);
+                free(er_pac); 
             }
             sr_arpreq_destroy(&sr->cache, req);
         }
