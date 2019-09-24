@@ -52,8 +52,66 @@ void sr_init(struct sr_instance* sr)
 
 } /* -- sr_init -- */
 
+/* fills the inputted ethernet header with stuff */
+void create_eth_hdr(uint8_t* dest, uint8_t* src, uint16_t e_type, sr_ethernet_hdr_t* eth_hdr) {
+
+    if(sizeof(dest) != (ETHER_ADDR_LEN * sizeof(uint8_t))) {
+        fprintf(stderr, "inputted destination not right size\n"); 
+        return; 
+    }
+    if(sizeof(src) != (ETHER_ADDR_LEN * sizeof(uint8_t))) {
+        fprintf(stderr, "inputted source not right size\n"); 
+        return; 
+    }
+    memcpy(eth_hdr->ether_dhost, dest, ETHER_ADDR_LEN * sizeof(uint8_t)); 
+    memcpy(eth_hdr->ether_shost, src, ETHER_ADDR_LEN * sizeof(uint8_t)); 
+    eth_hdr->ether_type = htons(e_type); 
+    return; 
+}
+
+/* Fills inputted ARP header with stuff */
+void create_arp_hdr(unsigned short op_code, unsigned char* t_hw_addr, uint32_t t_ip_addr, sr_ip_hdr_t* ip_hdr) {
+    
+}
+
+void create_icmp_hdr(uint8_t type, uint8_t code, uint16_t sum, sr_icmp_hdr_t* icmp_hdr) {
+
+}
+
+void create_icmp_t3_hdr(uint8_t type, uint8_t code, uint16_t sum, uint8_t* data, sr_icmp_t3_hdr_t* icmp_hdr) {
+
+}
+
+void create_ip_hdr(uint8_t ttl, uint16_t sum, uint32_t dest, sr_ip_hdr_t* ip_hdr) {
+
+}
+
+
+void forward_packet(sr_instance_t* sr, uint8_t* packet, char* interface, unsigned int len, uint32_t dest_addr) {
+    /*if(LPM_Match() == NULL) {
+                    send_ICMP_net_unreachable(); 
+                }
+                else { /* check ARP cache */
+                    /*if(ip_exists_in_ARP_cache()) {
+                        forward_to_next_hop(); 
+                    }
+                    else {
+                        /*send_ARP_request();*/
+                        /*construct_and_send_ARP(sr, (uint16_t) 1, packet, interface); */
+                        /*repeat 5x (handled in sr_arpcache.c)*/
+                   /* }
+                }*/
+}
+
+void send_ip_packet() {
+    /* Make sure we know the hardware address and its valid */
+
+    /* Otherwise add an ARP request to the ARP request queue */ 
+
+}
+
 /* Handles receiving an IP packet and moves responsibility over to other functions to do heavy lifting */
-void receive_IP_packet(sr_instance_t* sr, uint8_t* packet, char* interface) {
+void receive_IP_packet(sr_instance_t* sr, uint8_t* packet, char* interface, unsigned int len) {
 
     /* Determine if the packet is for me */
     sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t* )(packet + sizeof(struct sr_ethernet_hdr));
@@ -61,14 +119,148 @@ void receive_IP_packet(sr_instance_t* sr, uint8_t* packet, char* interface) {
 
     struct sr_if* inf;
 
-    /* verify that this was received legitamately */
+    /* verify that this was received legitamately on my interface PSOE */
     for (inf = sr->if_list; inf != NULL; inf = inf->next) {
         if (inf->ip == dest_addr) {
-            handle_IP_packet_for_me(sr, packet, interface); 
+            break; 
         }
     }
 
+    /* Figure out if I am the final destionation of the packet */
+    unsigned long my_address = sr.sr_addr.sin_addr.s_addr; 
+    if(dest_addr == my_address) {
+        fprintf(stderr, "DO NOT USE ATON\n", );
+        handle_ip_packet_for_me(sr, packet, interface, len); 
+    }
+    else if(dest_addr == inet_aton(my_address)) {
+        fprintf(stderr, "USE ATON\n", );
+        handle_ip_packet_for_me(sr, packet, interface, len); 
+    }
+    else {
+        /* This packet is not for me, find the person its intended for and send it to them */
+        forward_packet(sr, packet, interface, len, dest_addr); 
+    }
+
     return;
+}
+
+/* 
+    You just received an ARP request. 
+    1) create an ARP reply packet
+    2) send the ARP reply packet
+*/
+void send_arp_reply(sr_instance_t* sr, uint8_t* packet, char* interface, unsigned int len) {
+    /* get ethernet header */
+    struct sr_ethernet_hdr* eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+    memcpy(eth_hdr, packet, sizeof(sr_ethernet_hdr_t)); 
+
+    /* Get the ARP header from the message */
+    struct sr_arp_hdr* arp_hdr = malloc(sizeof(sr_arp_hdr_t));
+    memcpy(arp_hdr, packet + sizeof(sr_ethernet_hdr_t), sizeof(sr_arp_hdr_t));
+
+    /* AR as in ARP reply */
+    uint8_t* ar_packet = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)); 
+    struct sr_ethernet_hdr* ar_eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+    struct sr_arp_hdr* ar_arp_hdr = malloc(sizeof(sr_arp_hdr_t)); 
+
+    struct sr_if* intf = sr_get_interface(sr, interface); 
+
+    /* Fill in the Ethernet header of your message */
+    memcpy(ar_eth_hdr->ether_dhost, eth_hdr->ether_shost, ETHER_ADDR_LEN * sizeof(uint8_t));
+    memcpy(ar_eth_hdr->ether_shost, (uint8_t* )intf->addr, ETHER_ADDR_LEN * sizeof(uint8_t));
+    ar_eth_hdr->ether_type = htons(ethertype_arp); 
+
+    unsigned long my_address = sr.sr_addr.sin_addr.s_addr; 
+
+    /* Fill the ARP header */
+    ar_arp_hdr->ar_hrd = arp_hdr->ar_hrd; /* == ETHERNET!! */
+    ar_arp_hdr->ar_pro = arp_hdr->ar_pro; /* == IP */
+    ar_arp_hdr->ar_hln = arp_hdr->ar_hln; /* == 6 */
+    ar_arp_hdr->ar_pln = sizeof(uint32_t); /* == 4 */
+    ar_arp_hdr->ar_op = htons((unsigned short) op_code); 
+    memcpy(ar_arp_hdr->ar_sha, intf->addr, ETHER_ADDR_LEN * sizeof(unsigned char));
+    ar_arp_hdr->ar_sip = (uint32_t) my_address;             /* FIX THIS */
+    memcpy(ar_arp_hdr->ar_tha, arp_hdr->ar_sha, ETHER_ADDR_LEN * sizeof(unsigned char));
+    ar_arp_hdr->ar_tip = arp_hdr->ar_sip; 
+
+    fprintf(stderr, "HEADERS THAT I JUST MADE:\n");
+    print_hdr_eth((uint8_t* ) ar_eth_hdr); 
+    print_hdr_arp((uint8_t* ) ar_arp_hdr);
+
+    sr_send_packet(sr, (uint8_t*) ar_packet, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t), (const char*) intf->name); 
+
+    free(eth_hdr); 
+    free(arp_hdr); 
+    free(intf); 
+    free(ar_eth_hdr); 
+    free(ar_arp_hdr); 
+    free(ar_packet); 
+    free(eth_addr); 
+}
+
+
+/* Takes in an almost ready to go packet, fills in the ethernet header, and sends it off */
+void send_outstanding_packet(pac->buf, arp_hdr->ar_sha) {
+    /* check packet type, fill in accordingly */
+    switch(ethertype(packet)) {
+        case ethertype_ip:
+            break; 
+        case ethertype_arp:
+            fprintf(stderr, "Outstanding ARP packet, weird!\n");
+            break;
+        default: 
+            fprintf(stderr, "Almost sent out a whacko packet\n");
+            break;  
+    }
+    return; 
+}
+
+
+/* 
+    You just received an ARP reply. 
+    1) Cache the response
+    2) Go through my request queue and send outstanding packets
+*/
+void handle_arp_reply(sr_instance_t* sr, uint8_t* packet, char* interface, unsigned int len) {
+
+        /*
+        This method performs two functions:
+           1) Looks up this IP in the request queue. If it is found, returns a pointer
+              to the sr_arpreq with this IP. Otherwise, returns NULL.
+           2) Inserts this IP to MAC mapping in the cache, and marks it valid. 
+        struct sr_arpreq *sr_arpcache_insert(struct sr_arpcache *cache,
+                                             unsigned char *mac,
+                                             uint32_t ip)
+        */
+
+    /* get ethernet header */
+    struct sr_ethernet_hdr* eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+    memcpy(eth_hdr, packet, sizeof(sr_ethernet_hdr_t)); 
+
+    /* Get the ARP header from the message */
+    struct sr_arp_hdr* arp_hdr = malloc(sizeof(sr_arp_hdr_t));
+    memcpy(arp_hdr, packet + sizeof(sr_ethernet_hdr_t), sizeof(sr_arp_hdr_t));
+
+    /* Cache the response */
+    struct sr_arpreq* waiting = sr_arpcache_insert(&sr->cache, arp_hdr->ar_sha, arp_hdr->ar_sip); 
+
+    if(waiting == NULL)
+    {
+        /* No one waiting on this request to be fulfilled */
+        fprintf(stderr, "No one was waiting on this reply (excpet me)\n"); 
+        return; 
+    } /* Inform others waiting on this reply */
+    else {
+        /* Loop through all the requests waiting on this reply */
+        for(waiting; waiting != NULL; waiting = waiting->next) {
+            struct sr_packet* pac = waiting->packets;
+            /* Loop through all of the packets waiting on this request */
+            for(pac; pac!= NULL; pac = pac->next) {
+                send_outstanding_packet(pac->buf, arp_hdr->ar_sha); 
+            }
+        }
+    }
+    return; 
 }
 
 
@@ -119,7 +311,6 @@ void sr_handlepacket(struct sr_instance* sr,
 
     fprintf(stderr, "ETHERTYPE: %i\n", ethertype(packet));
     fprintf(stderr, "ETHERTYPE_IP: %i\n", ethertype_ip);
-    struct sr_arpentry* dest_entry = NULL; 
 
     switch(ethertype(packet)) {
         case ethertype_ip: 
@@ -139,100 +330,33 @@ void sr_handlepacket(struct sr_instance* sr,
                 return; 
             }
 
-            receive_IP_packet(sr, packet, interface); 
+            if(len < (sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t))) {
+                fprintf(stderr, "Packet is too short to be an IP packet\n");
+                return; 
+            }
 
-            /*dest_entry = sr_arpcache_lookup(&sr->cache, ip_hdr->ip_dst); 
-            if(dest_entry == NULL) {
-                struct sr_ethernet_hdr* eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
-                memcpy(eth_hdr, packet, sizeof(sr_ethernet_hdr_t)); 
-                struct sr_arpreq* outstanding_reqs = sr_arpcache_insert(&sr->cache, eth_hdr->ether_shost, ip_hdr->ip_src); 
-                for(outstanding_reqs; outstanding_reqs != NULL; outstanding_reqs = outstanding_reqs->next) {
-                    if (outstanding_reqs->ip == ip_hdr->ip_src) {
-                      
-                        construct_and_send_ARP(sr, (uint16_t) 1, packet, interface); 
-                    }
-                }
-            }*/
-            /*
-            if(packet_is_directly_for_me(sr, (sr_ip_hdr_t* ) (packet + sizeof(struct sr_ethernet_hdr)))) { 
-                
-                fprintf(stderr, "I am end destination of this IP packet\n"); 
+            /* If you have both of these you can process the IP Packet!! */
+            receive_IP_packet(sr, packet, interface, len); 
 
-                if(packet_is_an_echo_req(packet)) {
-                    
-                    if(dest_entry != NULL) {
-                        free(dest_entry);
-                        send_echo_reply(sr, packet, interface);
-                    }
-                    /*else { 
-                        construct_and_send_ARP(sr, (uint16_t) 1, packet, interface);
-                    }
-                }
-                else/* if(packet_is_TCP_UDP())*/ {
-                    /* Only handling echo reply right now */
-                    /*if(dest_entry != NULL) {
-                        send_ICMP_type3(sr, packet, interface, (uint8_t)(1)); 
-                    }*/
-                        /*else { /* send an ARP request 
-                            construct_and_send_ARP(sr, (uint16_t) 1, packet, interface);
-                        }*/
-             /*   }
-            }   
-            */
-            /*else { /* Packet is not for me */
-                /*if(LPM_Match() == NULL) {
-                    send_ICMP_net_unreachable(); 
-                }
-                else { /* check ARP cache */
-                    /*if(ip_exists_in_ARP_cache()) {
-                        forward_to_next_hop(); 
-                    }
-                    else {
-                        /*send_ARP_request();*/
-                        /*construct_and_send_ARP(sr, (uint16_t) 1, packet, interface); */
-                        /*repeat 5x (handled in sr_arpcache.c)*/
-                   /* }
-                }
-            }*/
             break; 
         case ethertype_arp: 
+
             fprintf(stderr, "Got an ARP Packet\n"); 
             sr_arp_hdr_t* arp_hdr = (sr_arp_hdr_t* )(packet + sizeof(struct sr_ethernet_hdr));
-            uint8_t arp_op_code = get_op_code(arp_hdr);
-            
-            /* If you get an ARP packet from someone you haven't talked to yet, add them to your cache*/
-            dest_entry = sr_arpcache_lookup(&sr->cache, arp_hdr->ar_sip);
-            if(dest_entry == NULL) {
-                struct sr_arpreq* outstanding_reqs = sr_arpcache_insert(&sr->cache, arp_hdr->ar_sha, arp_hdr->ar_sip); 
-                for(outstanding_reqs; outstanding_reqs != NULL; outstanding_reqs = outstanding_reqs->next) {
-                    if (outstanding_reqs->ip == arp_hdr->ar_sip) {
-                        /* send outstanding requests */
-                        construct_and_send_ARP(sr, (uint16_t) 1, packet, interface); 
-                    }
-                }
+            uint8_t arp_op_code = arp_hdr->ar_op; 
+
+            if(len < (sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t))) {
+                fprintf(stderr, "Packet is too short to be an ARP packet\n");
+                return; 
             }
 
             if(arp_op_code == arp_op_request) {
-                /*fprintf(stderr, "Received a request\n"); */
-                dest_entry = sr_arpcache_lookup(&sr->cache, arp_hdr->ar_sip); /* Can we send to the guy who sent to us??*/
-                
-                if(dest_entry != NULL) {
-                    construct_and_send_ARP(sr, (uint16_t) 2, packet, interface);
-                } 
-                else { /* We cannot even reply without this person's HW address */
-                    construct_and_send_ARP(sr, (uint16_t) 1, packet, interface); 
-                }
+                /*fprintf(stderr, "Received a request\n"); */                
+                send_arp_reply(sr, packet, interface, len); 
             }
             else if(arp_op_code == arp_op_reply) { /* the packet is a reply to me */
-                /* cache it! */
-                struct sr_arpreq* outstanding_reqs = sr_arpcache_insert(&sr->cache, arp_hdr->ar_sha, arp_hdr->ar_sip); 
-                /* send_outstanding_packets(); Just gonna do this here, no time for functionality */ 
-                for(outstanding_reqs; outstanding_reqs != NULL; outstanding_reqs = outstanding_reqs->next) {
-                    if (outstanding_reqs->ip == arp_hdr->ar_sip) {
-                        /* send outstanding requests */
-                        construct_and_send_ARP(sr, (uint16_t) 1, packet, interface); 
-                    }
-                }
+                /* cache it! Go through requests queue and send outstanding packets */
+                handle_arp_reply(sr, packet, interface, len); 
             }
             else { 
                 fprintf(stderr, "Just got an ARP packet that was not a request or reply\n");
