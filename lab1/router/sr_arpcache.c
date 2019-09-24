@@ -73,16 +73,17 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
             /* loop through all the packets tied to this request */
             for (pac; pac != NULL; pac = pac->next) {
                 /* send an ICMP packet DEST HOST UNREACHABLE type=3, code=1*/
-                sr_if_t* intf = sr_get_interface(pac->iface);
-                sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t* )(pac->buf + sizeof(struct sr_ip_hdr));
+                struct sr_if* intf = sr_get_interface(sr, pac->iface);
+                struct sr_ip_hdr* ip_hdr = (sr_ip_hdr_t* )(pac->buf + sizeof(struct sr_ip_hdr));
+                struct sr_arpentry* dest_entry = sr_arpcache_lookup(&(sr->cache), ip_hdr->ip_src); 
 
                 uint8_t* er_pac = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ethernet_hdr_t) + sizeof(sr_icmp_hdr_t)); 
                 struct sr_ethernet_hdr* er_eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
                 struct sr_ip_hdr* er_ip_hdr = malloc(sizeof(sr_ip_hdr_t));
                 struct sr_icmp_t3_hdr* er_icmp_hdr = malloc(sizeof(sr_icmp_t3_hdr_t)); 
 
-                sr_if_t* inf = sr_get_interface(interface);
-
+/*                struct sr_if* inf = sr_get_interface(interface);
+*/
                 create_eth_hdr((uint8_t*) dest_entry->mac, (uint8_t*) intf->addr, (uint16_t) ethertype_ip, er_eth_hdr);
                 create_ip_hdr((uint8_t) ip_hdr->ip_ttl, (uint16_t) 0, (uint32_t) intf->ip, 
                     (uint32_t) dest_entry->ip, er_ip_hdr, (unsigned int) sizeof(sr_icmp_hdr_t));
@@ -94,7 +95,7 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
 
                 fprintf(stderr, "ICMP HOST UNREACHABLE PACKET:\n");
                 print_hdrs((uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
-                sr_send_packet(sr, (uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t), interface);
+                sr_send_packet(sr, (uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t), pac->iface);
                 free(er_eth_hdr);
                 free(er_ip_hdr); 
                 free(er_icmp_hdr);

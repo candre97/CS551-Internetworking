@@ -24,6 +24,11 @@
 
 int ip_id_num = 0;
 
+void sr_handlepacket(struct sr_instance* sr,
+        uint8_t * packet/* lent */,
+        unsigned int len,
+        char* interface/* lent */);
+
 /*---------------------------------------------------------------------
  * Method: sr_init(void)
  * Scope:  Global
@@ -307,13 +312,10 @@ void send_arp_message(struct sr_instance* sr, uint8_t* packet, char* interface, 
 }
 
 /* Takes in the unprocessed packet that is waiting to be dealt with, deals with it now that it can */
-void send_outstanding_packet(struct sr_instance* sr,struct sr_packet* pac) {
+void send_outstanding_packet(struct sr_instance* sr, struct sr_packet* pac) {
     /* check packet type, fill in accordingly */
 
-    sr_handlepacket((struct sr_instance*) sr,
-        (uint8_t* ) pac->buf/* lent */,
-        unsigned int pac->len,
-        char* pac->iface/* lent */);
+    sr_handlepacket(sr, pac->buf, pac->len, pac->iface);
 
     /*
     switch(ethertype(packet)) {
@@ -336,7 +338,7 @@ void send_outstanding_packet(struct sr_instance* sr,struct sr_packet* pac) {
     1) Cache the response
     2) Go through my request queue and send outstanding packets
 */
-void handle_arp_reply(sr_instance_t* sr, uint8_t* packet, char* interface, unsigned int len) {
+void handle_arp_reply(struct sr_instance* sr, uint8_t* packet, char* interface, unsigned int len) {
 
         /*
         This method performs two functions:
