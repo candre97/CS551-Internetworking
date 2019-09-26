@@ -654,6 +654,8 @@ int  sr_arp_req_not_for_us(struct sr_instance* sr,
 
     if (len < sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_arp_hdr) )
     { return 0; }
+    
+    /*fprintf(stderr, "NAME: %s\nHW ADDR: %s\n", iface->name, iface->addr);*/
 
     assert(iface);
 

@@ -59,7 +59,7 @@ void sr_init(struct sr_instance* sr)
 
 /* fills the inputted ethernet header with stuff */
 void create_eth_hdr(uint8_t* dest, uint8_t* src, uint16_t e_type, sr_ethernet_hdr_t* eth_hdr) {
-
+/*
     if(sizeof(dest) != (ETHER_ADDR_LEN * sizeof(uint8_t))) {
         fprintf(stderr, "inputted destination not right size\n"); 
         return; 
@@ -67,7 +67,7 @@ void create_eth_hdr(uint8_t* dest, uint8_t* src, uint16_t e_type, sr_ethernet_hd
     if(sizeof(src) != (ETHER_ADDR_LEN * sizeof(uint8_t))) {
         fprintf(stderr, "inputted source not right size\n"); 
         return; 
-    }
+    }*/
     memcpy(eth_hdr->ether_dhost, dest, ETHER_ADDR_LEN * sizeof(uint8_t)); 
     memcpy(eth_hdr->ether_shost, src, ETHER_ADDR_LEN * sizeof(uint8_t)); 
     eth_hdr->ether_type = htons(e_type); 
@@ -82,9 +82,9 @@ void create_arp_hdr(unsigned short op_code, unsigned char* s_hw_addr, uint32_t s
     arp_hdr->ar_pln = sizeof(uint32_t); /* == 4 */
     arp_hdr->ar_op = htons(op_code); 
     memcpy(arp_hdr->ar_sha, s_hw_addr, ETHER_ADDR_LEN * sizeof(unsigned char));
-    arp_hdr->ar_sip = htonl(s_ip_addr); 
+    arp_hdr->ar_sip = (s_ip_addr); 
     memcpy(arp_hdr->ar_tha, t_hw_addr, ETHER_ADDR_LEN * sizeof(unsigned char));
-    arp_hdr->ar_tip = htonl(t_ip_addr); 
+    arp_hdr->ar_tip = t_ip_addr; 
 }
 
 void create_icmp_hdr(uint8_t type, uint8_t code, uint16_t sum, struct sr_icmp_hdr* icmp_hdr) {
@@ -110,7 +110,7 @@ void create_ip_hdr(uint8_t ttl, uint16_t sum, uint32_t src, uint32_t dest, sr_ip
     /* TODO: change er_xxxx, er means echo reply */
     ip_hdr->ip_hl = 4;
     ip_hdr->ip_v = 4;
-    ip_hdr->ip_tos = 0; /* TODO: update based on what your receive */
+    ip_hdr->ip_tos = 0; 
     ip_hdr->ip_len = htons((uint16_t)(sizeof(sr_ip_hdr_t) + data_size));
     ip_hdr->ip_id = htons(ip_id_num++);   /* TODO: calculate new IP ID */
     ip_hdr->ip_off = 0;
@@ -250,13 +250,8 @@ void receive_IP_packet(struct sr_instance* sr, uint8_t* packet, char* interface,
     uint32_t my_address = inf->ip; 
 
     if(dest_addr == my_address) {
-        fprintf(stderr, "DO NOT USE ATON\n");
         handle_ip_packet_for_me(sr, packet, interface, len); 
     }
-   /* else if(dest_addr == inet_aton(my_address)) {
-        fprintf(stderr, "USE ATON\n");
-        handle_ip_packet_for_me(sr, packet, interface, len); 
-    }*/
     else {
         /* This packet is not for me, find the person its intended for and send it to them */
         forward_packet(sr, packet, interface, len, dest_addr); 
@@ -289,9 +284,12 @@ void send_arp_message(struct sr_instance* sr, uint8_t* packet, char* interface, 
     /* Fill in the Ethernet header of your message */
     create_eth_hdr((uint8_t*) eth_hdr->ether_shost, (uint8_t*) intf->addr, (uint16_t) ethertype_arp, ar_eth_hdr);
 
+    /* (unsigned short op_code, unsigned char* s_hw_addr, uint32_t s_ip_addr, unsigned char* t_hw_addr, 
+    uint32_t t_ip_addr, sr_arp_hdr_t* arp_hdr) {*/
+
     /* Create an ARP header for an ARP reply */
-    create_arp_hdr((unsigned short) arp_type, (unsigned char*) intf->addr, (uint32_t) intf->ip, (unsigned char*) arp_hdr->ar_sha, 
-        (uint32_t) arp_hdr->ar_sip, ar_arp_hdr); 
+    create_arp_hdr(arp_type, intf->addr, intf->ip, eth_hdr->ether_shost, 
+        arp_hdr->ar_sip, ar_arp_hdr); 
 
     /* Fill the ARP header */
     memcpy(ar_packet, ar_eth_hdr, sizeof(sr_ethernet_hdr_t)); 
@@ -301,7 +299,7 @@ void send_arp_message(struct sr_instance* sr, uint8_t* packet, char* interface, 
     print_hdrs((uint8_t* ) ar_packet, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)); 
 
     sr_send_packet(sr, (uint8_t*) ar_packet, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t), (const char*) interface); 
-
+    fprintf(stderr, "sent\n");
     free(eth_hdr); 
     free(arp_hdr); 
     free(intf); 
@@ -434,7 +432,8 @@ void sr_handlepacket(struct sr_instance* sr,
             /* Check if I need to forward the packet or not */
             fprintf(stderr, "Got an IP Packet\n"); 
 
-            sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t* )(packet + sizeof(struct sr_ethernet_hdr));
+            struct sr_ip_hdr* ip_hdr = malloc(sizeof(sr_ip_hdr_t)); 
+            memcpy(ip_hdr, (packet + sizeof(struct sr_ethernet_hdr)), sizeof(sr_ip_hdr_t));
 
             uint16_t recd_chk_sum = ip_hdr->ip_sum; 
             ip_hdr->ip_sum = 0; 
@@ -459,24 +458,26 @@ void sr_handlepacket(struct sr_instance* sr,
         case ethertype_arp: 
 
             fprintf(stderr, "Got an ARP Packet\n"); 
-            sr_arp_hdr_t* arp_hdr = (sr_arp_hdr_t* )(packet + sizeof(struct sr_ethernet_hdr));
-            uint8_t arp_op_code = arp_hdr->ar_op; 
+            struct sr_arp_hdr* arp_hdr = malloc(sizeof(sr_arp_hdr_t)); 
+            memcpy(arp_hdr, packet + sizeof(struct sr_ethernet_hdr), sizeof(sr_arp_hdr_t));
 
             if(len < (sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t))) {
                 fprintf(stderr, "Packet is too short to be an ARP packet\n");
                 return; 
             }
-
-            if(arp_op_code == arp_op_request) {
-                /*fprintf(stderr, "Received a request\n"); */                
+            print_hdr_arp((uint8_t* )arp_hdr); 
+            if(ntohs(arp_hdr->ar_op) == 1) {
+                fprintf(stderr, "Received a request\n");             
                 send_arp_message(sr, packet, interface, len, 2); 
             }
-            else if(arp_op_code == arp_op_reply) { /* the packet is a reply to me */
+            else if(ntohs(arp_hdr->ar_op) == 2) { /* the packet is a reply to me */
                 /* cache it! Go through requests queue and send outstanding packets */
                 handle_arp_reply(sr, packet, interface, len); 
             }
             else { 
                 fprintf(stderr, "Just got an ARP packet that was not a request or reply\n");
+                fprintf(stderr, "opcode: %i", arp_hdr->ar_op ); 
+                fprintf(stderr, "opcode, ntohs: %i", htons(arp_hdr->ar_op)); 
                 return; 
             }
             break; 

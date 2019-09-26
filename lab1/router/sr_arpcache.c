@@ -52,12 +52,12 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
         if (req->sent < 5) {
             if (difftime(curtime, req->sent) > 1) {
                 /* this request hasn't sent in the past second and isn't expired so resend it*/
-                struct sr_if* dest_if = sr->if_list; 
-                struct sr_packet *pac = req->packets; 
+                struct sr_packet *pac; 
                 /* Loop through all the packets waiting on this request */
-                for(pac; pac != NULL; pac = pac->next) {
+                for(pac = req->packets; pac != NULL; pac = pac->next) {
                     /* resend this ARP request, dest = unknown */
-                    construct_and_send_ARP(sr, (uint16_t ) 1, (uint8_t*) pac->buf, (char*) pac->iface); 
+
+                    send_arp_message(sr, pac->buf, pac->iface, pac->len, 1); 
                 }
                 /* increment times_sent after sending the request again, update sent time to now. */
                 req->times_sent += 1; 
@@ -68,10 +68,10 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
             /* this request has already been sent 5 times
             reply to all senders waiting on this reply with a DEST HOST UNREACHABLE
             loop through the senders waiting on a reply from this ARP request */
-            struct sr_packet *pac = req->packets; 
+            struct sr_packet *pac;
             
             /* loop through all the packets tied to this request */
-            for (pac; pac != NULL; pac = pac->next) {
+            for (pac = req->packets; pac != NULL; pac = pac->next) {
                 /* send an ICMP packet DEST HOST UNREACHABLE type=3, code=1*/
                 struct sr_if* intf = sr_get_interface(sr, pac->iface);
                 struct sr_ip_hdr* ip_hdr = (sr_ip_hdr_t* )(pac->buf + sizeof(struct sr_ip_hdr));
@@ -82,8 +82,7 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
                 struct sr_ip_hdr* er_ip_hdr = malloc(sizeof(sr_ip_hdr_t));
                 struct sr_icmp_t3_hdr* er_icmp_hdr = malloc(sizeof(sr_icmp_t3_hdr_t)); 
 
-/*                struct sr_if* inf = sr_get_interface(interface);
-*/
+
                 create_eth_hdr((uint8_t*) dest_entry->mac, (uint8_t*) intf->addr, (uint16_t) ethertype_ip, er_eth_hdr);
                 create_ip_hdr((uint8_t) ip_hdr->ip_ttl, (uint16_t) 0, (uint32_t) intf->ip, 
                     (uint32_t) dest_entry->ip, er_ip_hdr, (unsigned int) sizeof(sr_icmp_hdr_t));
