@@ -213,6 +213,42 @@ void handle_ip_packet_for_me(struct sr_instance* sr, uint8_t* packet, char* inte
     }
 }
 
+short int get_mask_length(uint32_t mask) {
+    short int retval = 0;
+    uint32_t bits = 0x800000000; 
+
+    while(1) {
+        if((bits == 0) || ((bits & mask) == 0)) {
+            return retval;
+        }
+        bits >>= 1; 
+        retval += 1; 
+    }
+
+    return 0;
+}
+
+
+struct sr_rt* LPM(struct sr_instance* sr, uint32_t dest_addr) {
+    struct* retval = NULL;
+    int longest = 0; 
+
+    struct sr_rt* rt_irt = sr->routing_table; 
+
+    for(rt_itr; rt_itr != NULL; rt_itr = rt_itr->next) {
+        if(get_mask_length(rt_itr->mask.s_addr) > longest) {
+            fprintf(stderr, "Found a longer mask\n");
+            if((ntohl(rt_itr->dest.s_addr) & rt_itr->mask.s_addr) == (dest_addr & rt_itr->mask.s_addr)) {
+                fprintf(stderr, "Found a match!\n"); 
+                longest = get_mask_length(rt_itr->mask.s_addr);
+            }
+        }
+    }
+    if(retval != NULL){ 
+        fprintf(stderr, "Found a match!!\n");
+    }
+    return retval; 
+}
 
 void forward_packet(struct sr_instance* sr, uint8_t* packet, char* interface, unsigned int len, uint32_t dest_addr) {
     /*if(LPM_Match() == NULL) {
@@ -228,7 +264,34 @@ void forward_packet(struct sr_instance* sr, uint8_t* packet, char* interface, un
                         repeat 5x (handled in sr_arpcache.c)
                     }
                 }*/
-    fprintf(stderr, "forwarding not set up yet\n"); 
+    sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t* )(packet + sizeof(struct sr_ethernet_hdr));
+    sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t* )(packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr));
+    
+    /* LPM match */
+    struct sr_rt* route = LPM(sr, dest_addr);
+    if(route == NULL) {
+        fprintf(stderr, "No route was found!\n"); 
+        /* SEND ICMP NET UNREACHABLE */
+    }
+    else {
+        /* See if this destination is in our cache */
+        struct sr_arpentry* dest_entry = sr_arpcache_lookup(&(sr->cache), dest_entry); 
+
+        if (dest_entry == NULL) {
+            struct sr_ip_hdr* ip_hdr_copy = malloc(sizeof(sr_ip_hdr_t)); 
+
+            create_ip_hdr2(ip_hdr_copy, ip_hdr);
+
+            fprintf(stderr, "Adding this packet to request Queue: \n");
+            print_hdr_ip((uint8_t* )ip_hdr); 
+            fprintf(stderr, "as\n");
+            print_hdr_ip((uint8_t* ) ip_hdr_copy);
+            sr_arpcache_queuereq(&sr->cache, ip_hdr->ip_src, (uint8_t* ) ip_hdr_copy, ip_hdr->ip_len, interface);
+            fprintf(stderr, "Added a request to the queue\n");
+            return; /* Do not do anything in this function, you cannot send to this IP yet */
+        }
+
+    }
 }
 
 void send_ip_packet() {
