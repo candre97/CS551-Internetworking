@@ -180,6 +180,7 @@ void print_hdrs(uint8_t *buf, uint32_t length) {
   }
   else {
     fprintf(stderr, "Unrecognized Ethernet Type: %d\n", ethtype);
+    print_hdr_ip(buf + sizeof(sr_ethernet_hdr_t)); 
   }
 }
 

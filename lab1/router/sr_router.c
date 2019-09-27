@@ -74,6 +74,23 @@ void create_eth_hdr(uint8_t* dest, uint8_t* src, uint16_t e_type, sr_ethernet_hd
     return; 
 }
 
+void create_ip_hdr2(struct sr_ip_hdr* copy_to, struct  sr_ip_hdr* copy_from) {
+    copy_to->ip_hl = copy_from->ip_hl;
+    copy_to->ip_v = copy_from->ip_v;
+    copy_to->ip_tos = copy_from->ip_tos;
+    copy_to->ip_len = copy_from->ip_len;
+    copy_to->ip_id = copy_from->ip_id;   /* TODO: calculate new IP ID */
+    copy_to->ip_off = copy_from->ip_off;
+    copy_to->ip_ttl = copy_from->ip_ttl;
+    copy_to->ip_p = copy_from->ip_p; 
+    copy_to->ip_src = copy_from->ip_src;
+    copy_to->ip_dst = copy_from->ip_dst;
+    copy_to->ip_sum = 0; 
+    copy_to->ip_sum = cksum((uint8_t* )copy_to, sizeof(sr_ip_hdr_t)); 
+
+
+}
+
 /* Fills inputted ARP header with stuff */
 void create_arp_hdr(unsigned short op_code, unsigned char* s_hw_addr, uint32_t s_ip_addr, unsigned char* t_hw_addr, uint32_t t_ip_addr, sr_arp_hdr_t* arp_hdr) {
     arp_hdr->ar_hrd = htons(arp_hrd_ethernet); /* == ETHERNET!! */
@@ -91,7 +108,7 @@ void create_icmp_hdr(uint8_t type, uint8_t code, uint16_t sum, struct sr_icmp_hd
     icmp_hdr->icmp_type = type; 
     icmp_hdr->icmp_code = code;
     icmp_hdr->icmp_sum = 0;
-    icmp_hdr->icmp_sum = cksum((uint8_t*) icmp_hdr, sizeof(sr_icmp_hdr_t)); 
+    icmp_hdr->icmp_sum = cksum((void*) icmp_hdr, sizeof(sr_icmp_hdr_t)); 
 }
 
 void create_icmp_t3_hdr(uint8_t type, uint8_t code, uint16_t sum, uint8_t* data, struct sr_icmp_t3_hdr* icmp_hdr) {
@@ -99,27 +116,27 @@ void create_icmp_t3_hdr(uint8_t type, uint8_t code, uint16_t sum, uint8_t* data,
     icmp_hdr->icmp_code = code;
     memcpy(icmp_hdr->data, data, ICMP_DATA_SIZE * sizeof(uint8_t)); 
     icmp_hdr->icmp_sum = 0;
-    icmp_hdr->icmp_sum = cksum((uint8_t*) icmp_hdr, sizeof(sr_icmp_hdr_t)); 
+    icmp_hdr->icmp_sum = cksum((void*) icmp_hdr, sizeof(sr_icmp_t3_hdr_t)); 
 }
 /* 
     Here data_size will either be == sizeof(icmpt3_hdr_) or sizeof(icmp_hdr)
     IP off assumes that you are going to be sending only short packets
 */
-void create_ip_hdr(uint8_t ttl, uint16_t sum, uint32_t src, uint32_t dest, sr_ip_hdr_t* ip_hdr, unsigned int data_size) {
+void create_ip_hdr(uint8_t ttl, uint16_t sum, uint32_t src, uint32_t dest, sr_ip_hdr_t* ip_hdr, uint16_t data_size) {
     /* IP header filling */
     /* TODO: change er_xxxx, er means echo reply */
-    ip_hdr->ip_hl = 4;
+    ip_hdr->ip_hl = 5;
     ip_hdr->ip_v = 4;
     ip_hdr->ip_tos = 0; 
-    ip_hdr->ip_len = htons((uint16_t)(sizeof(sr_ip_hdr_t) + data_size));
+    ip_hdr->ip_len = htons(data_size);
     ip_hdr->ip_id = htons(ip_id_num++);   /* TODO: calculate new IP ID */
-    ip_hdr->ip_off = 0;
+    ip_hdr->ip_off = htons(0);
     ip_hdr->ip_ttl = ttl;
     ip_hdr->ip_p = ip_protocol_icmp; 
     ip_hdr->ip_src = htonl(src);
     ip_hdr->ip_dst = htonl(dest);
     ip_hdr->ip_sum = 0; 
-    ip_hdr->ip_sum = cksum((uint8_t* )ip_hdr, sizeof(sr_ip_hdr_t)); 
+    ip_hdr->ip_sum = cksum((void* )ip_hdr, sizeof(sr_ip_hdr_t)); 
 }
 
 void handle_ip_packet_for_me(struct sr_instance* sr, uint8_t* packet, char* interface, unsigned int len) {
@@ -133,77 +150,65 @@ void handle_ip_packet_for_me(struct sr_instance* sr, uint8_t* packet, char* inte
     struct sr_arpentry* dest_entry = sr_arpcache_lookup(&(sr->cache), ip_hdr->ip_src); 
     struct sr_if* intf = sr_get_interface(sr, interface);
     int one = 1; 
+
+    uint8_t* er_pac = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ethernet_hdr_t) + sizeof(sr_icmp_hdr_t)); 
+    struct sr_ethernet_hdr* er_eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+    struct sr_ip_hdr* er_ip_hdr = malloc(sizeof(sr_ip_hdr_t));
+    struct sr_icmp_t3_hdr* er_icmp3_hdr = malloc(sizeof(sr_icmp_t3_hdr_t)); 
+    struct sr_icmp_hdr* er_icmp_hdr = malloc(sizeof(sr_icmp_hdr_t)); 
+
     switch(one) {
         case 1: /* get type, if its an echo request, send an echo reply if you can */
             
-            if(dest_entry == NULL) {
-                /* Create an ARP request */
+           /* if(dest_entry == NULL) {
                 fprintf(stderr, "Queuing a request\n");
                 uint8_t* pac_copy = malloc(sizeof(packet)); 
                 memcpy(pac_copy, packet, sizeof(packet)); 
                 sr_arpcache_queuereq(&(sr->cache), ip_hdr->ip_src, pac_copy, len, interface);
-            }
-            else { /* You can send, so send an echo reply */
-                uint8_t* er_pac = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ethernet_hdr_t) + sizeof(sr_icmp_hdr_t)); 
-                struct sr_ethernet_hdr* er_eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
-                struct sr_ip_hdr* er_ip_hdr = malloc(sizeof(sr_ip_hdr_t));
-                struct sr_icmp_hdr* er_icmp_hdr = malloc(sizeof(sr_icmp_hdr_t)); 
+            }*/
+             /* Assume You can send, so send an echo reply */           
 
-                create_eth_hdr((uint8_t*) dest_entry->mac, (uint8_t*) intf->addr, (uint16_t) ethertype_ip, er_eth_hdr);
-                create_ip_hdr((uint8_t) ip_hdr->ip_ttl, (uint16_t) 0, (uint32_t) intf->ip, 
-                    (uint32_t) dest_entry->ip, er_ip_hdr, (unsigned int) sizeof(sr_icmp_hdr_t));
-                create_icmp_hdr((uint8_t) 0, (uint8_t) 0, (uint16_t) 0, er_icmp_hdr);
+            create_eth_hdr((uint8_t*) dest_entry->mac, (uint8_t*) intf->addr, (uint16_t) ethertype_ip, er_eth_hdr);
+            create_ip_hdr((uint8_t) ip_hdr->ip_ttl, (uint16_t) 0, (uint32_t) intf->ip, 
+                (uint32_t) dest_entry->ip, er_ip_hdr, 84);
+            create_icmp_hdr((uint8_t) 0, (uint8_t) 0, (uint16_t) 0, er_icmp_hdr);
 
-                memcpy(er_pac, er_eth_hdr, sizeof(sr_ethernet_hdr_t)); 
-                memcpy(er_pac + sizeof(sr_ethernet_hdr_t), er_ip_hdr, sizeof(sr_ip_hdr_t)); 
-                memcpy(er_pac + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t), er_icmp_hdr, sizeof(sr_icmp_hdr_t)); 
+            memcpy(er_pac, er_eth_hdr, sizeof(sr_ethernet_hdr_t)); 
+            memcpy(er_pac + sizeof(sr_ethernet_hdr_t), er_ip_hdr, sizeof(sr_ip_hdr_t)); 
+            memcpy(er_pac + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t), er_icmp_hdr, sizeof(sr_icmp_hdr_t)); 
 
-                fprintf(stderr, "ECHO REPLY PACKET:\n");
-                print_hdrs((uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t));
-                sr_send_packet(sr, (uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t), interface);
-
+            fprintf(stderr, "ECHO REPLY PACKET:\n");
+            print_hdrs((uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t));
+            sr_send_packet(sr, (uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t), interface);
+            free(er_pac); 
                 /* free all the stuff you created */
                /* free(er_eth_hdr);
                 free(er_ip_hdr); 
                 free(er_icmp_hdr);
                 free(er_pac); */
-            }
+            
             break;
         default:  /* otherwise send ICMP port unreachable, type = 3, code = 3 */
             fprintf(stderr, "Received an IP Packet that is not ICMP, probably TCP/UDP\n"); 
-            if(dest_entry == NULL) {
-                /* Create an ARP request */
-                fprintf(stderr, "NULL IP PACKET, ERROR ERROR 2\n");
-                sr_arpcache_queuereq((struct sr_arpcache*) &sr->cache,
-                                       (uint32_t) ip_hdr->ip_src,
-                                       (uint8_t*) packet,           /* borrowed */
-                                       (unsigned int) len,
-                                       (char*) interface);
-            }
-            else { /* You can send, so send a ICMP port unreachable, type = 3, code = 3 */
-                uint8_t* er_pac = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ethernet_hdr_t) + sizeof(sr_icmp_hdr_t)); 
-                struct sr_ethernet_hdr* er_eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
-                struct sr_ip_hdr* er_ip_hdr = malloc(sizeof(sr_ip_hdr_t));
-                struct sr_icmp_t3_hdr* er_icmp_hdr = malloc(sizeof(sr_icmp_t3_hdr_t)); 
+             /* You can send, so send a ICMP port unreachable, type = 3, code = 3 */
+            create_eth_hdr((uint8_t*) dest_entry->mac, (uint8_t*) intf->addr, (uint16_t) ethertype_ip, er_eth_hdr);
+            create_ip_hdr((uint8_t) ip_hdr->ip_ttl, (uint16_t) 0, (uint32_t) intf->ip, 
+                (uint32_t) dest_entry->ip, er_ip_hdr, (unsigned int) sizeof(sr_icmp_hdr_t));
+            create_icmp_t3_hdr((uint8_t) 3, (uint8_t) 3, (uint16_t) 0, (uint8_t* ) ip_hdr, er_icmp3_hdr);
 
-                create_eth_hdr((uint8_t*) dest_entry->mac, (uint8_t*) intf->addr, (uint16_t) ethertype_ip, er_eth_hdr);
-                create_ip_hdr((uint8_t) ip_hdr->ip_ttl, (uint16_t) 0, (uint32_t) intf->ip, 
-                    (uint32_t) dest_entry->ip, er_ip_hdr, (unsigned int) sizeof(sr_icmp_hdr_t));
-                create_icmp_t3_hdr((uint8_t) 3, (uint8_t) 3, (uint16_t) 0, (uint8_t* ) ip_hdr, er_icmp_hdr);
+            memcpy(er_pac, er_eth_hdr, sizeof(sr_ethernet_hdr_t)); 
+            memcpy(er_pac + sizeof(sr_ethernet_hdr_t), er_ip_hdr, sizeof(sr_ip_hdr_t)); 
+            memcpy(er_pac + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t), er_icmp3_hdr, sizeof(sr_icmp_t3_hdr_t)); 
 
-                memcpy(er_pac, er_eth_hdr, sizeof(sr_ethernet_hdr_t)); 
-                memcpy(er_pac + sizeof(sr_ethernet_hdr_t), er_ip_hdr, sizeof(sr_ip_hdr_t)); 
-                memcpy(er_pac + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t), er_icmp_hdr, sizeof(sr_icmp_t3_hdr_t)); 
-
-                fprintf(stderr, "ICMP PORT UNREACHABLE PACKET:\n");
-                print_hdrs((uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
-                sr_send_packet(sr, (uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t), interface);
-                /* free all the stuff you created */
-                /*free(er_eth_hdr);
-                free(er_ip_hdr); 
-                free(er_icmp_hdr);
-                free(er_pac); */
-            }
+            fprintf(stderr, "ICMP PORT UNREACHABLE PACKET:\n");
+            print_hdrs((uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
+            sr_send_packet(sr, (uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t), interface);
+            /* free all the stuff you created */
+            /*free(er_eth_hdr);
+            free(er_ip_hdr); 
+            free(er_icmp_hdr);
+            free(er_pac); */
+            
             break;
     }
 }
@@ -213,23 +218,44 @@ void forward_packet(struct sr_instance* sr, uint8_t* packet, char* interface, un
     /*if(LPM_Match() == NULL) {
                     send_ICMP_net_unreachable(); 
                 }
-                else { /* check ARP cache */
-                    /*if(ip_exists_in_ARP_cache()) {
+                else { check ARP cache 
+                    if(ip_exists_in_ARP_cache()) {
                         forward_to_next_hop(); 
                     }
                     else {
-                        /*send_ARP_request();*/
-                        /*construct_and_send_ARP(sr, (uint16_t) 1, packet, interface); */
-                        /*repeat 5x (handled in sr_arpcache.c)*/
-                   /* }
+                        send_ARP_request();
+                        construct_and_send_ARP(sr, (uint16_t) 1, packet, interface); 
+                        repeat 5x (handled in sr_arpcache.c)
+                    }
                 }*/
+    fprintf(stderr, "forwarding not set up yet\n"); 
 }
 
 void send_ip_packet() {
-    /* Make sure we know the hardware address and its valid */
 
-    /* Otherwise add an ARP request to the ARP request queue */ 
-    /*create_ip_hdr(uint8_t ttl, uint16_t sum, uint32_t src, uint32_t dest, er_ip_hdr, unsigned int data_size); */
+}
+
+void send_icmp_echo_reply(struct sr_instance* sr, uint32_t dest_ip, unsigned char* dest_mac, char* interface) {
+    
+    uint8_t* er_pac = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ethernet_hdr_t) + sizeof(sr_icmp_hdr_t)); 
+    struct sr_ethernet_hdr* er_eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
+    struct sr_ip_hdr* er_ip_hdr = malloc(sizeof(sr_ip_hdr_t));
+    struct sr_icmp_hdr* er_icmp_hdr = malloc(sizeof(sr_icmp_hdr_t)); 
+
+    struct sr_if* interf = sr_get_interface(sr, interface); 
+
+    create_eth_hdr((uint8_t*) dest_mac, (uint8_t*) interf->addr, ethertype_ip, er_eth_hdr);
+    create_ip_hdr((uint8_t) 64, (uint16_t) 0, htonl(interf->ip), htonl(dest_ip), er_ip_hdr, 84); 
+    create_icmp_hdr((uint8_t) 0, (uint8_t) 0, (uint16_t) 0, er_icmp_hdr);
+
+
+    memcpy(er_pac, er_eth_hdr, sizeof(sr_ethernet_hdr_t)); 
+    memcpy(er_pac + sizeof(sr_ethernet_hdr_t), er_ip_hdr, sizeof(sr_ip_hdr_t)); 
+    memcpy(er_pac + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t), er_icmp_hdr, sizeof(sr_icmp_hdr_t)); 
+
+    fprintf(stderr, "ECHO REPLY THAT I'M SENDING:\n");
+    print_hdrs(er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)); 
+    sr_send_packet(sr, (uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t), interface);
 }
 
 /* Handles receiving an IP packet and moves responsibility over to other functions to do heavy lifting */
@@ -247,26 +273,36 @@ void receive_IP_packet(struct sr_instance* sr, uint8_t* packet, char* interface,
     struct sr_arpentry* dest_entry = sr_arpcache_lookup(&(sr->cache), ip_hdr->ip_src); 
 
     if(dest_entry == NULL) { /* we cannot send here, add an ARP request*/
-        uint8_t* pac_copy = malloc(sizeof(packet)); 
-        memcpy(pac_copy, packet, sizeof(packet)); 
-        sr_arpcache_queuereq(&(sr->cache), ip_hdr->ip_src, pac_copy, len, interface);
+        /*uint8_t* pac_copy = (sr_ethernet_hdr_t* )malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)); */
+        struct sr_ip_hdr* ip_hdr_copy = malloc(sizeof(sr_ip_hdr_t)); 
+
+        create_ip_hdr2(ip_hdr_copy, ip_hdr);
+
+        fprintf(stderr, "Adding this packet to request Queue: \n");
+        print_hdr_ip((uint8_t* )ip_hdr); 
+        fprintf(stderr, "as\n");
+        print_hdr_ip((uint8_t* ) ip_hdr_copy);
+        sr_arpcache_queuereq(&sr->cache, ip_hdr->ip_src, (uint8_t* ) ip_hdr_copy, ip_hdr->ip_len, interface);
         fprintf(stderr, "Added a request to the queue\n");
         return; /* Do not do anything in this function, you cannot send to this IP yet */
     }
 
     if(dest_addr == my_address) {
         fprintf(stderr, "IP packet was sent to me, ARP Entry not NULL\n");
-        fprintf(stderr, "MAC from entry: %s\n", dest_entry->mac); 
-        handle_ip_packet_for_me(sr, packet, interface, len); 
+        print_addr_eth((uint8_t* ) dest_entry->mac) ;
+        /*handle_ip_packet_for_me(sr, packet, interface, len); */
+        /* Send an ICMP echo reply */
+        send_icmp_echo_reply(sr, ip_hdr->ip_src, dest_entry->mac, interface);
+        free(dest_entry); 
     }
     else {
         /* This packet is not for me, find the person its intended for and send it to them */
-        long int addr = (long int) my_address; 
+        
         fprintf(stderr, "IP packet needs to be forwarded to %s\n", inf->name); 
 
         /*struct sr_arpentry* = sr_arpcache_lookup()*/
-
         forward_packet(sr, packet, interface, len, dest_addr); 
+        free(dest_entry); 
     }
 
     return;
@@ -357,8 +393,23 @@ void send_arp_message(struct sr_instance* sr, uint8_t* packet, char* interface, 
 /* Takes in the unprocessed packet that is waiting to be dealt with, deals with it now that it can */
 void send_outstanding_packet(struct sr_instance* sr, struct sr_packet* pac) {
     /* check packet type, fill in accordingly */
-    fprintf(stderr, "handling a packet\n"); 
-    sr_handlepacket(sr, pac->buf, pac->len, pac->iface);
+    fprintf(stderr, "Sending a backed up request\n");
+
+    fprintf(stderr, "Responding to this packet: \n");
+
+    struct sr_ip_hdr* ip_hdr = (sr_ip_hdr_t* )(pac->buf); 
+    print_hdr_ip((uint8_t*) ip_hdr); 
+
+    struct sr_arpentry* dest_entry = sr_arpcache_lookup(&(sr->cache), ip_hdr->ip_src); 
+    if(dest_entry != NULL) {
+        fprintf(stderr, "Sending an ECHO REPLY\n"); 
+        send_icmp_echo_reply(sr, ip_hdr->ip_src, dest_entry->mac, pac->iface);
+
+        free(dest_entry); 
+        return; 
+    }
+    
+    /*sr_handlepacket(sr, pac->buf, pac->len, pac->iface);*/
 
     /*
     switch(ethertype(packet)) {
@@ -381,7 +432,7 @@ void send_outstanding_packet(struct sr_instance* sr, struct sr_packet* pac) {
     1) Cache the response
     2) Go through my request queue and send outstanding packets
 */
-void handle_arp_reply(struct sr_instance* sr, struct sr_arp_hdr* arp_hdr, char* interface, unsigned int len) {
+void handle_arp_reply(struct sr_instance* sr, struct sr_ethernet_hdr* eth_hdr , struct sr_arp_hdr* arp_hdr, char* interface, unsigned int len) {
 
         /*
         This method performs two functions:
@@ -401,23 +452,41 @@ void handle_arp_reply(struct sr_instance* sr, struct sr_arp_hdr* arp_hdr, char* 
 
     /* Cache the response */
     fprintf(stderr, "Updating ARP cache\n");
-    struct sr_arpreq* waiting = sr_arpcache_insert(&sr->cache, arp_hdr->ar_sha, arp_hdr->ar_sip); 
 
+    struct sr_arpreq* waiting = sr_arpcache_insert(&sr->cache, eth_hdr->ether_shost, (arp_hdr->ar_sip)); 
+
+    
     if(waiting == NULL)
     {
         /* No one waiting on this request to be fulfilled */
-        fprintf(stderr, "No one was waiting on this reply (excpet me)\n"); 
+        fprintf(stderr, "No requests waiting on this reply\n"); 
         return; 
     } /* Inform others waiting on this reply */
     else {
         /* Loop through all the requests waiting on this reply */
-        for(waiting; waiting != NULL; waiting = waiting->next) {
+        char* ifacee = waiting->packets->iface; 
+
+        struct sr_if* iff = sr_get_interface(sr, ifacee); 
+
+        fprintf(stderr, "New arp entry:\n");
+        print_addr_ip_int(htonl(iff->ip)); 
+        print_addr_eth((uint8_t* )iff->addr);
+
+        while (waiting != NULL) {
             struct sr_packet* pac = waiting->packets;
             /* Loop through all of the packets waiting on this request */
             fprintf(stderr, "Sending a packet that was waiting on this request\n");
-            /*for(pac; pac!= NULL; pac = pac->next) { */
-            send_outstanding_packet(sr, pac); 
-            /*}*/
+            int i = 1;
+            while (pac != NULL){ 
+                fprintf(stderr, "sending packet #%i\n", i);
+                send_outstanding_packet(sr, pac); 
+                /*fprintf(stderr, "error coming from here?\n"); 
+                print_hdrs(pac->buf, pac->len);
+                print_hdr_ip(pac->buf); */
+                pac = pac->next; 
+                i++;
+            }
+            waiting = waiting->next; 
         }
     }
     return; 
@@ -472,7 +541,7 @@ void sr_handlepacket(struct sr_instance* sr,
     fprintf(stderr, "ETHERTYPE: %i\n", ethertype(packet));
     fprintf(stderr, "ETHERTYPE_IP: %i\n", ethertype_ip);
 
-    struct sr_arpentry* dest_entry = malloc(sizeof(struct sr_arpentry));
+    /*struct sr_arpentry* dest_entry = malloc(sizeof(struct sr_arpentry));*/
     struct sr_ethernet_hdr* eth_hdr = (sr_ethernet_hdr_t* )(packet); 
 
     switch(ethertype(packet)) {
@@ -507,8 +576,54 @@ void sr_handlepacket(struct sr_instance* sr,
         case ethertype_arp: 
 
             fprintf(stderr, "Got an ARP Packet\n"); 
+
+            if(len < (sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t))) {
+                fprintf(stderr, "Packet is too short to be an ARP packet\n");
+                return; 
+            }
+
             struct sr_arp_hdr* arp_hdr = (sr_arp_hdr_t*)(packet + sizeof(sr_ethernet_hdr_t)); 
-            
+
+            /* Check if this ARP is to me */
+
+
+            struct sr_arpentry* dest_entry = sr_arpcache_lookup(&(sr->cache), arp_hdr->ar_sip); 
+            if(dest_entry == NULL) {
+                fprintf(stderr, "From someone new, adding them to ARP Cache\n");                
+                
+                struct sr_arpreq* waiting = sr_arpcache_insert(&sr->cache, eth_hdr->ether_shost, (arp_hdr->ar_sip));
+
+                if(waiting == NULL)
+                {
+                    /* No one waiting on this request to be fulfilled */
+                    fprintf(stderr, "No requests waiting on this reply\n"); 
+                } /* Inform others waiting on this reply */
+                else {
+                    /* Loop through all the requests waiting on this reply */
+                    char* ifacee = waiting->packets->iface; 
+
+                    struct sr_if* iff = sr_get_interface(sr, ifacee); 
+
+                    fprintf(stderr, "New arp entry:\n");
+                    print_addr_ip_int(htonl(iff->ip)); 
+                    print_addr_eth((uint8_t* )iff->addr);
+
+                    while (waiting != NULL) {
+                        struct sr_packet* pac = waiting->packets;
+                        /* Loop through all of the packets waiting on this request */
+                        fprintf(stderr, "Sending a packet that was waiting on this request\n");
+                        int i = 1;
+                        while (pac != NULL){ 
+                            fprintf(stderr, "sending packet #%i\n", i);
+                            send_outstanding_packet(sr, pac); 
+                            pac = pac->next; 
+                            i++;
+                        }
+                        waiting = waiting->next; 
+                    }
+                }
+            }
+
             if(ntohs(arp_hdr->ar_op) == 1) {
                 fprintf(stderr, "Received ARP request\n");             
                 send_arp_message(sr, packet, interface, len, 2); 
@@ -516,7 +631,7 @@ void sr_handlepacket(struct sr_instance* sr,
             else if(ntohs(arp_hdr->ar_op) == 2) { /* the packet is a reply to me */
                 /* cache it! Go through requests queue and send outstanding packets */
                 fprintf(stderr, "Received ARP reply\n");  
-                handle_arp_reply(sr, arp_hdr, interface, len); 
+                handle_arp_reply(sr, eth_hdr, arp_hdr, interface, len); 
             }
             else { 
                 fprintf(stderr, "Just got an ARP packet that was not a request or reply\n");
