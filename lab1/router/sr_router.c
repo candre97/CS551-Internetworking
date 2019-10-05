@@ -229,7 +229,10 @@ void forward_packet(struct sr_instance* sr, uint8_t* packet, char* interface, un
         /* See if this destination is in our cache */
         struct sr_if* interf = sr_get_interface(sr, route->interface); 
 
-        struct sr_arpentry* dest_entry = sr_arpcache_lookup(&(sr->cache), htonl(route->dest.s_addr)); 
+        fprintf(stderr, "Looking up at this IP:\n");
+        print_addr_ip_int(htonl((uint32_t)(route->dest.s_addr))); 
+
+        struct sr_arpentry* dest_entry = sr_arpcache_lookup(&(sr->cache), htonl((uint32_t) route->dest.s_addr)); 
 
         if (dest_entry == NULL) {
 
@@ -263,6 +266,30 @@ void forward_packet(struct sr_instance* sr, uint8_t* packet, char* interface, un
         else {
             /* If you get here then Dest-Entry is not null!! */
             /* */
+            int pac_len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t); 
+            uint8_t* pac_copy = malloc(pac_len); 
+            struct sr_ethernet_hdr* eth_hdr_copy = malloc(sizeof(sr_ethernet_hdr_t)); 
+            struct sr_ip_hdr* ip_hdr_copy = malloc(sizeof(sr_ip_hdr_t)); 
+            struct sr_icmp_hdr* icmp_hdr_copy = malloc(sizeof(sr_icmp_hdr_t)); 
+
+            create_eth_hdr2(eth_hdr_copy, eth_hdr); 
+            create_ip_hdr2(ip_hdr_copy, ip_hdr);
+            ip_hdr_copy->ip_id = 27; /* HACK: using this as a flag to send to IP DST, not reflect back towards source */
+            create_icmp_hdr2(icmp_hdr_copy, icmp_hdr); 
+
+            memcpy(eth_hdr_copy->ether_shost, interf->addr, ETHER_ADDR_LEN * sizeof(unsigned char));
+            memcpy(eth_hdr_copy->ether_dhost, dest_entry->mac, ETHER_ADDR_LEN * sizeof(unsigned char));
+
+            ip_hdr_copy->ip_src = interf->ip;
+            ip_hdr_copy->ip_dst = dest_entry->ip; 
+
+            memcpy(pac_copy, eth_hdr_copy, sizeof(sr_ethernet_hdr_t)); 
+            memcpy(pac_copy + sizeof(sr_ethernet_hdr_t), ip_hdr_copy, sizeof(sr_ip_hdr_t)); 
+            memcpy(pac_copy + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t), icmp_hdr_copy, sizeof(sr_icmp_hdr_t)); 
+
+            sr_send_packet(sr, (uint8_t* ) pac_copy, pac_len, interf->name); 
+            free(dest_entry); 
+            free(pac_copy); 
         }
         
 
@@ -485,6 +512,7 @@ void send_outstanding_packet(struct sr_instance* sr, struct sr_arpreq* waiting) 
             fprintf(stderr, "replying using this packet: \n"); 
             print_hdrs(pac_itr->buf, pac_itr->len);    
             sr_send_packet(sr, pac_itr->buf, pac_itr->len, route->interface); 
+            free(dest_entry); 
         }
     }
 
@@ -529,9 +557,12 @@ void handle_arp_reply(struct sr_instance* sr, struct sr_ethernet_hdr* eth_hdr , 
     struct sr_arp_hdr* arp_hdr = (sr_arp_hdr_t* )(packet + sizeof(sr_ethernet_hdr_t)); */
 
     /* Cache the response */
-    fprintf(stderr, "Updating ARP cache\n");
+    fprintf(stderr, "Updating ARP cache at this IP:\n");
 
-    struct sr_arpreq* waiting = sr_arpcache_insert(&sr->cache, arp_hdr->ar_sha, (arp_hdr->ar_sip)); 
+
+    print_addr_ip_int(ntohl(arp_hdr->ar_sip)); 
+    
+    struct sr_arpreq* waiting = sr_arpcache_insert(&sr->cache, arp_hdr->ar_sha, ntohl(arp_hdr->ar_sip)); 
 
     if(waiting == NULL)
     {
@@ -609,7 +640,6 @@ void sr_handlepacket(struct sr_instance* sr,
     fprintf(stderr, "ETHERTYPE: %i\n", ethertype(packet));
     fprintf(stderr, "ETHERTYPE_IP: %i\n", ethertype_ip);
 
-    /*struct sr_arpentry* dest_entry = malloc(sizeof(struct sr_arpentry));*/
     struct sr_ethernet_hdr* eth_hdr = (sr_ethernet_hdr_t* )(packet); 
 
     switch(ethertype(packet)) {
@@ -691,6 +721,9 @@ void sr_handlepacket(struct sr_instance* sr,
                     }
                 }
             }
+            else {
+                free(dest_entry); 
+            }            
 
             if(ntohs(arp_hdr->ar_op) == 1) {
                 fprintf(stderr, "Received ARP request\n");             

@@ -130,6 +130,29 @@ struct sr_arpentry *sr_arpcache_lookup(struct sr_arpcache *cache, uint32_t ip) {
         
     pthread_mutex_unlock(&(cache->lock));
     
+    if(copy != NULL) {
+        return copy;
+    }
+
+    ip = htonl(ip); 
+
+    pthread_mutex_lock(&(cache->lock));
+
+    for (i = 0; i < SR_ARPCACHE_SZ; i++) {
+        if ((cache->entries[i].valid) && (cache->entries[i].ip == ip)) {
+            entry = &(cache->entries[i]);
+        }
+    }
+    
+    /* Must return a copy b/c another thread could jump in and modify
+       table after we return. */
+    if (entry) {
+        copy = (struct sr_arpentry *) malloc(sizeof(struct sr_arpentry));
+        memcpy(copy, entry, sizeof(struct sr_arpentry));
+    }
+        
+    pthread_mutex_unlock(&(cache->lock));
+
     return copy;
 }
 
