@@ -1,0 +1,28 @@
+!
+! Zebra configuration saved from vty
+!   2019/10/03 19:32:33
+!
+hostname G4_KANS
+password G4_KANS
+log file /var/log/quagga/ospfd_G4_KANS.log
+!
+!
+!
+interface chic
+ ip ospf cost 690
+!
+interface host
+!
+interface hous
+ ip ospf cost 818
+!
+interface lo
+!
+interface salt
+ ip ospf cost 1330
+!
+router ospf
+ network 4.0.0.0/16 area 0.0.0.0
+!
+line vty
+!

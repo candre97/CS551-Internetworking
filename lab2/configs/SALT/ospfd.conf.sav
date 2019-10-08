@@ -1,0 +1,28 @@
+!
+! Zebra configuration saved from vty
+!   2019/10/03 19:35:48
+!
+hostname G4_SALT
+password G4_SALT
+log file /var/log/quagga/ospfd_G4_SALT.log
+!
+!
+!
+interface host
+!
+interface kans
+ ip ospf cost 1330
+!
+interface lo
+!
+interface losa
+ ip ospf cost 1303
+!
+interface seat
+ ip ospf cost 913
+!
+router ospf
+ network 4.0.0.0/16 area 0.0.0.0
+!
+line vty
+!

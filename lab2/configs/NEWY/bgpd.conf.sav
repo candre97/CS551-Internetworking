@@ -1,0 +1,10 @@
+!
+! Zebra configuration saved from vty
+!   2019/10/04 12:28:05
+!
+hostname G4_NEWY
+password G4_NEWY
+log file /var/log/quagga/bgpd_G4_NEWY.log
+!
+line vty
+!
