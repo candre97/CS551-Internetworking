@@ -13,6 +13,7 @@ commands to vtysh.
 '''
 
 import pexpect
+import sys
 
 routers_upper = ["NEWY", "WASH", "ATLA", "CHIC", "KANS", "HOUS", "SALT", "LOSA", "SEAT"]
 routers_lower = ["newy", "wash", "atla", "chic", "kans", "hous", "salt", "losa", "seat"]
@@ -28,8 +29,6 @@ costs = []
 
 i = 0
 
-child = pexpect.spawn ("/home/cs551/candre97-cs551/lab2/")
-print child.read()
 for rtr in routers_upper: 
 
 	print("configuring settings for %s" % rtr)
@@ -57,10 +56,13 @@ for rtr in routers_upper:
 			name = line[index : len(line) - 1]
 			#print("appending name %s " % name)
 			names.append(name)
-			print(name)
+			#print(name)
 			# next line has the link cost
-			if name == "lo" or name == "host":
-				costs.append("0")
+			if name not in routers_lower:
+				if name == "losa":
+					print("error")
+				else: 
+					costs.append("0")
 				#print("appending cost %i" % 0)
 				continue
 			line = ospfd.readline()
@@ -70,16 +72,17 @@ for rtr in routers_upper:
 				print("no cost found for this interface")
 				continue
 			costs.append(line[index+5 : len(line) - 1])
-			print(line[index+5 : len(line) - 1])
+			#print(line[index+5 : len(line) - 1])
 
-	print("All done reading the ospfd file, time to read the zebra file")
+	#print("All done reading the ospfd file, time to read the zebra file")
 
 	line = zebra.readline()
 	while len(line) > 0:
 		line = zebra.readline()
 		if("interface lo" in line):
-			ips.append("0.0.0.0")
-			continue
+			if "losa" not in line:
+				ips.append("0.0.0.0")
+				continue
 		index = line.find("address")
 		if(index > 0):
 			#print(index)
@@ -88,30 +91,32 @@ for rtr in routers_upper:
 			#print(address)
 			ips.append(address)
 
-	print("All Settings for Router %s: " % rtr)
-	for i in range(0,len(names) - 1):
-		print(names[i])
-		print(ips[i])
-		print(costs[i])
+	#print("All Settings for Router %s: " % rtr)
+	#for i in range(0,len(names) - 1):
+		# print(names[i])
+		# print(ips[i])
+		# print(costs[i])
 
-	command = "sudo ./go_to.sh " + rtr
-
+	child = pexpect.spawn('sudo ./go_to.sh ' + rtr)
+	print('sudo ./go_to.sh ' + rtr)
 	# start to configure the router in the CLI
-	child.sendline(command)
-	print child.read()
-	print(command)
+	#print child.read()
+
 	child.sendline("vtysh")
-	print child.read()
+	print("vtysh")
+	#print child.read()
 	child.sendline("conf t")
-	print child.read()
+	print("conf t")
+	#print child.read()
 
 	# make everything under 4.0.0.0/8 be in the area 0 network
 	child.sendline("router ospf")
 	child.sendline("network 4.0.0.0/8 area 0")
+	child.sendline("network 4.0.0.0/16 area 0")
 	child.sendline("exit")
 
 	# configure the interfaces
-	for i in range (0, len(names) - 1) :
+	for i in range (0, len(names)) :
 		if(names[i] == "lo"):
 			continue
 		command = "interface " + names[i]
@@ -122,7 +127,7 @@ for rtr in routers_upper:
 		print(command)
 		if(names[i] == "host"):
 			continue
-		command = "ospf link cost " + costs[i]
+		command = "ospf cost " + costs[i]
 		child.sendline(command)
 		print(command)
 		child.sendline("exit")
@@ -133,6 +138,9 @@ for rtr in routers_upper:
 
 	child.sendline("exit")
 	child.sendline("exit")
+	child.sendline("ls")
+	print child.readline()
+	child.close()
 
 print("router configuration complete")
-child.close()
+

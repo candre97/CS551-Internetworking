@@ -7,9 +7,9 @@ routers_upper = ["NEWY", "WASH", "ATLA", "CHIC", "KANS", "HOUS", "SALT", "LOSA",
 host_ip = ""
 
 folder_location = "/home/cs551/candre97-cs551/lab2/configs/"
-child = pexpect.spawn ("/home/cs551/candre97-cs551/lab2/")
 
 for rtr in routers_upper: 
+
 	print("configuring settings for %s-host" % rtr)
 
 	file_location = folder_location + rtr + '/'
@@ -38,7 +38,7 @@ for rtr in routers_upper:
 	
 	# start to configure the router in the CLI
 	command = "sudo ./go_to.sh " + rtr + "-host"
-	child.sendline(command)
+	child = pexpect.spawn(command)
 	print(command)
 
 	# set the IP of the hosts interface towards the router
@@ -50,8 +50,8 @@ for rtr in routers_upper:
 	command = "sudo route add default gw " + host_ip + "2 " + rtr.lower()
 	child.sendline(command)
 	print(command)
-
 	child.sendline("exit")
+	child.close()
 
 print("host configuration complete")
-child.close()
+
