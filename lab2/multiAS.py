@@ -23,10 +23,10 @@ from mininet.link import Link, TCLink
 from subprocess import check_call
 
 sys.path.append(os.getcwd())
-from network import lab2_topology
+from network import lab2_topology, stopNetwork
 
 if __name__ == '__main__':
     atexit.register(stopNetwork)
 
-    lab2_topology(full=True)
+    net = lab2_topology(full=True)
     CLI(net)
