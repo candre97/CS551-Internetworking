@@ -256,8 +256,8 @@ void forward_packet(struct sr_instance* sr, uint8_t* packet, char* interface, un
 
             fprintf(stderr, "Adding this packet to request Queue: \n");
             print_hdrs((uint8_t* ) packet, len); 
-            fprintf(stderr, "as\n");
-            print_hdrs((uint8_t* ) pac_copy, pac_len);
+            /*fprintf(stderr, "as\n");
+            print_hdrs((uint8_t* ) pac_copy, pac_len);*/
             sr_arpcache_queuereq(&sr->cache, (route->gw.s_addr), (uint8_t* ) pac_copy, pac_len, interface);
             fprintf(stderr, "Added a request to the queue for a MAC to match IP: ");
             print_addr_ip_int(htonl(ip_hdr->ip_dst)); 
@@ -338,7 +338,7 @@ void handle_ip_packet_for_me(struct sr_instance* sr, uint8_t* packet, char* inte
     struct sr_if* intf = sr_get_interface(sr, interface);
     int one = 1; 
 
-    struct sr_arpentry* dest_entry = sr_arpcache_lookup(&(sr->cache), ip_hdr->ip_src); 
+    struct sr_arpentry* dest_entry = sr_arpcache_lookup(&(sr->cache), htonl((uint32_t)ip_hdr->ip_src)); 
 
     if(dest_entry == NULL) { /* we cannot send here, add an ARP request*/
         /*uint8_t* pac_copy = (sr_ethernet_hdr_t* )malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)); */
@@ -348,10 +348,36 @@ void handle_ip_packet_for_me(struct sr_instance* sr, uint8_t* packet, char* inte
 
         fprintf(stderr, "Adding this packet to request Queue: \n");
         print_hdr_ip((uint8_t* )ip_hdr); 
-        fprintf(stderr, "as\n");
-        print_hdr_ip((uint8_t* ) ip_hdr_copy);
+        /*fprintf(stderr, "as\n");
+        print_hdr_ip((uint8_t* ) ip_hdr_copy);*/
         sr_arpcache_queuereq(&sr->cache, ip_hdr->ip_src, (uint8_t* ) ip_hdr_copy, ip_hdr->ip_len, interface);
         fprintf(stderr, "Added a request to the queue\n");
+
+        fprintf(stderr, "DEST IP: ");
+        print_addr_ip_int(htonl(ip_hdr->ip_src)); 
+
+        /*int pac_len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t); 
+        uint8_t* pac_copy = malloc(pac_len); 
+        struct sr_ethernet_hdr* eth_hdr_copy = malloc(sizeof(sr_ethernet_hdr_t)); 
+        struct sr_ip_hdr* ip_hdr_copy = malloc(sizeof(sr_ip_hdr_t)); 
+        struct sr_icmp_hdr* icmp_hdr_copy = malloc(sizeof(sr_icmp_hdr_t)); 
+
+        create_eth_hdr2(eth_hdr_copy, eth_hdr); 
+        create_ip_hdr2(ip_hdr_copy, ip_hdr);
+        ip_hdr_copy->ip_id = 27; 
+        create_icmp_hdr2(icmp_hdr_copy, icmp_hdr); 
+
+        memcpy(pac_copy, eth_hdr_copy, sizeof(sr_ethernet_hdr_t)); 
+        memcpy(pac_copy + sizeof(sr_ethernet_hdr_t), ip_hdr_copy, sizeof(sr_ip_hdr_t)); 
+        memcpy(pac_copy + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t), icmp_hdr_copy, sizeof(sr_icmp_hdr_t)); 
+
+        fprintf(stderr, "Adding this packet to request Queue: \n");
+        print_hdrs((uint8_t* ) packet, len); 
+        sr_arpcache_queuereq(&sr->cache, (route->gw.s_addr), (uint8_t* ) pac_copy, pac_len, interface);
+        fprintf(stderr, "Added a request to the queue for a MAC to match IP: ");
+        print_addr_ip_int(htonl(ip_hdr->ip_dst)); */
+
+
         return; /* Do not do anything in this function, you cannot send to this IP yet */
     }
 
@@ -509,10 +535,13 @@ void send_outstanding_packet(struct sr_instance* sr, struct sr_arpreq* waiting) 
 
             memcpy(((sr_ethernet_hdr_t *) pac_itr->buf)->ether_dhost, dest_entry->mac, sizeof(unsigned char) * ETHER_ADDR_LEN);
             memcpy(((sr_ethernet_hdr_t *) pac_itr->buf)->ether_shost, inf->addr, sizeof(unsigned char) * ETHER_ADDR_LEN);
-            fprintf(stderr, "replying using this packet: \n"); 
+            fprintf(stderr, "sending this packet: \n"); 
             print_hdrs(pac_itr->buf, pac_itr->len);    
             sr_send_packet(sr, pac_itr->buf, pac_itr->len, route->interface); 
-            free(dest_entry); 
+            fprintf(stderr, "Packet sent\n");
+            /*free(dest_entry); 
+            free(route); 
+            free(inf); */
         }
     }
 
@@ -559,10 +588,9 @@ void handle_arp_reply(struct sr_instance* sr, struct sr_ethernet_hdr* eth_hdr , 
     /* Cache the response */
     fprintf(stderr, "Updating ARP cache at this IP:\n");
 
-
     print_addr_ip_int(ntohl(arp_hdr->ar_sip)); 
     
-    struct sr_arpreq* waiting = sr_arpcache_insert(&sr->cache, arp_hdr->ar_sha, ntohl(arp_hdr->ar_sip)); 
+    struct sr_arpreq* waiting = sr_arpcache_insert(&sr->cache, arp_hdr->ar_sha, (arp_hdr->ar_sip)); 
 
     if(waiting == NULL)
     {
@@ -589,6 +617,22 @@ void handle_arp_reply(struct sr_instance* sr, struct sr_ethernet_hdr* eth_hdr , 
         }
     }
     return; 
+}
+
+bool arp_iface_mine(struct sr_arp_hdr* arp_hdr, struct sr_instance* sr) {
+
+
+
+    struct sr_if* curr_if = sr->if_list;
+    for(curr_if; curr_if != NULL; curr_if = curr_if->next) {
+        if (curr_if->ip == arp_hdr->ar_tip) {
+            return true; 
+        }
+        if (curr_if->ip == ntohl(arp_hdr->ar_tip)) {
+            return true; 
+        }
+    }
+    return false; 
 }
 
 
@@ -723,7 +767,15 @@ void sr_handlepacket(struct sr_instance* sr,
             }
             else {
                 free(dest_entry); 
-            }            
+            }
+
+            if(arp_iface_mine(arp_hdr, sr)) {
+                fprintf(stderr, "ARP received on one of my interfaces\n");
+            }        
+            else {
+                fprintf(stderr, "ARP NOT received on one of my interfaces-- going to IGNORE ARP message\n");
+                return; 
+            }    
 
             if(ntohs(arp_hdr->ar_op) == 1) {
                 fprintf(stderr, "Received ARP request\n");             
