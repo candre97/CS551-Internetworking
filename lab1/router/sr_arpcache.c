@@ -51,15 +51,17 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
 
         if (difftime(curtime, req->sent) > 1) {
 
-            if (req->sent < 5) {
+            if (req->times_sent < 5) {
                 
                 /* this request hasn't sent in the past second and isn't expired so resend it*/
                 struct sr_if* intf = sr->if_list; 
                  /* Resend request (broadcast) !! */
                 for(intf; intf != NULL; intf = intf->next) {
-                    send_arp_req(sr, req->ip, intf->name); 
-                    req->times_sent += 1; 
-                    req->sent = time(NULL); 
+                    if(req->ip == intf->ip) {
+                        send_arp_req(sr, req->ip, intf->name); 
+                        req->times_sent += 1; 
+                        req->sent = time(NULL); 
+                    }
                 }
                 /* increment times_sent after sending the request again, update sent time to now. */
             }
@@ -94,9 +96,9 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
                     fprintf(stderr, "ICMP HOST UNREACHABLE PACKET:\n");
                     print_hdrs((uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
                     sr_send_packet(sr, (uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t), pac->iface);
-                    free(er_eth_hdr);
+                    /*free(er_eth_hdr);
                     free(er_ip_hdr); 
-                    free(er_icmp_hdr);
+                    free(er_icmp_hdr);*/
                     free(er_pac); 
                 }
                 sr_arpreq_destroy(&sr->cache, req);
