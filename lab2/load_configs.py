@@ -18,7 +18,7 @@ import sys
 routers_upper = ["NEWY", "WASH", "ATLA", "CHIC", "KANS", "HOUS", "SALT", "LOSA", "SEAT"]
 routers_lower = ["newy", "wash", "atla", "chic", "kans", "hous", "salt", "losa", "seat"]
 
-folder_location = "/home/cs551/candre97-cs551/lab2/configs/"
+folder_location = "/home/cs551/candre97-cs551/lab2/configs_multiAS/"
 
 # named tuple like a struct to hold info about an interface
 # need name, ip, cost 

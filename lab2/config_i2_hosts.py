@@ -54,4 +54,3 @@ for rtr in routers_upper:
 	child.close()
 
 print("host configuration complete")
-
