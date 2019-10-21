@@ -1,0 +1,22 @@
+!
+! Zebra configuration saved from vty
+!   2019/10/15 22:53:13
+!
+hostname G4_NEWY
+password G4_NEWY
+log file /var/log/quagga/ospfd_G4_NEWY.log
+!
+!
+!
+interface chic
+!
+interface east
+!
+interface host
+!
+interface lo
+!
+interface wash
+!
+line vty
+!
