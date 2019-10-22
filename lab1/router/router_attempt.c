@@ -147,8 +147,8 @@ void create_ip_hdr(uint8_t ttl, uint16_t sum, uint32_t src, uint32_t dest, sr_ip
     ip_hdr->ip_off = htons(0);
     ip_hdr->ip_ttl = ttl;
     ip_hdr->ip_p = ip_protocol_icmp; 
-    ip_hdr->ip_src = htonl(src);
-    ip_hdr->ip_dst = htonl(dest);
+    ip_hdr->ip_src = (src);
+    ip_hdr->ip_dst = (dest);
     ip_hdr->ip_sum = 0; 
     ip_hdr->ip_sum = cksum((void* )ip_hdr, sizeof(sr_ip_hdr_t)); 
 }
@@ -482,31 +482,23 @@ void send_arp_message(struct sr_instance* sr, uint8_t* packet, char* interface, 
         create_arp_hdr(arp_type, intf->addr, intf->ip, eth_hdr->ether_shost, 
         arp_hdr->ar_sip, ar_arp_hdr); 
     }
-    /* Fill in the Ethernet header of your message */
-    
-    /*print_hdr_eth((uint8_t* ) eth_hdr); */
-    /* (unsigned short op_code, unsigned char* s_hw_addr, uint32_t s_ip_addr, unsigned char* t_hw_addr, 
-    uint32_t t_ip_addr, sr_arp_hdr_t* arp_hdr) {*/
-
-    /* Create an ARP header for an ARP reply */
-    create_arp_hdr(arp_type, intf->addr, intf->ip, eth_hdr->ether_shost, 
-        arp_hdr->ar_sip, ar_arp_hdr); 
 
     /* Fill the ARP header */
     memcpy(ar_packet, ar_eth_hdr, sizeof(sr_ethernet_hdr_t)); 
     memcpy(ar_packet + sizeof(sr_ethernet_hdr_t), ar_arp_hdr, sizeof(sr_arp_hdr_t)); 
 
-    fprintf(stderr, "PACKET THAT I JUST MADE:\n");
+    fprintf(stderr, "ARP PACKET THAT I JUST MADE:\n");
     print_hdrs((uint8_t* ) ar_packet, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)); 
 
     sr_send_packet(sr, (uint8_t*) ar_packet, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t), (const char*) interface); 
     fprintf(stderr, "sent\n");
-    /*free(eth_addr); */
-    /*free(ar_packet); 
+    
+    free(eth_hdr); 
+    free(arp_hdr); 
+    free(ar_packet); 
     free(ar_eth_hdr);
-    free(ar_arp_hdr); */
-
-
+    free(ar_arp_hdr);
+    free(intf); 
 }
 
 /* Takes in the unprocessed packet that is waiting to be dealt with, deals with it now that it can */

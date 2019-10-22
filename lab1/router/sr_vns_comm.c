@@ -592,6 +592,7 @@ int sr_send_packet(struct sr_instance* sr /* borrowed */,
 
     /* -- log packet -- */
     sr_log_packet(sr,buf,len);
+    print_hdrs((uint8_t* ) buf, len); 
 
     if ( ! sr_ether_addrs_match_interface( sr, buf, iface) ){
         fprintf( stderr, "*** Error: problem with ethernet header, check log\n");
