@@ -91,5 +91,7 @@ for rtr in routers_upper:
 	bgpd.close()
 	zebra.close()
 
-
+# some hard coded server1, server2, and 
 child = pexpect.spawn('sudo ./go_to.sh ' + rtr)
+
+

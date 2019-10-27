@@ -58,7 +58,7 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
                  /* Resend request (broadcast) !! */
                 for(intf; intf != NULL; intf = intf->next) {
                     if(req->ip == intf->ip) {
-                        send_arp_req(sr, req->ip, intf->name); 
+                        generate_arp_request(sr, req, intf);
                         req->times_sent += 1; 
                         req->sent = time(NULL); 
                     }
@@ -78,28 +78,9 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
                     struct sr_ip_hdr* ip_hdr = (sr_ip_hdr_t* )(pac->buf + sizeof(struct sr_ip_hdr));
                     struct sr_arpentry* dest_entry = sr_arpcache_lookup(&(sr->cache), ip_hdr->ip_src); 
 
-                    uint8_t* er_pac = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ethernet_hdr_t) + sizeof(sr_icmp_hdr_t)); 
-                    struct sr_ethernet_hdr* er_eth_hdr = malloc(sizeof(sr_ethernet_hdr_t)); 
-                    struct sr_ip_hdr* er_ip_hdr = malloc(sizeof(sr_ip_hdr_t));
-                    struct sr_icmp_t3_hdr* er_icmp_hdr = malloc(sizeof(sr_icmp_t3_hdr_t)); 
-
-
-                    create_eth_hdr((uint8_t*) dest_entry->mac, (uint8_t*) intf->addr, (uint16_t) ethertype_ip, er_eth_hdr);
-                    create_ip_hdr((uint8_t) ip_hdr->ip_ttl, (uint16_t) 0, (uint32_t) intf->ip, 
-                        (uint32_t) dest_entry->ip, er_ip_hdr, (unsigned int) sizeof(sr_icmp_hdr_t));
-                    create_icmp_t3_hdr((uint8_t) 3, (uint8_t) 1, (uint16_t) 0, (uint8_t* ) ip_hdr, er_icmp_hdr);
-
-                    memcpy(er_pac, er_eth_hdr, sizeof(sr_ethernet_hdr_t)); 
-                    memcpy(er_pac + sizeof(sr_ethernet_hdr_t), er_ip_hdr, sizeof(sr_ip_hdr_t)); 
-                    memcpy(er_pac + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t), er_icmp_hdr, sizeof(sr_icmp_t3_hdr_t)); 
-
-                    fprintf(stderr, "ICMP HOST UNREACHABLE PACKET:\n");
-                    print_hdrs((uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
-                    sr_send_packet(sr, (uint8_t* ) er_pac, sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t), pac->iface);
-                    /*free(er_eth_hdr);
-                    free(er_ip_hdr); 
-                    free(er_icmp_hdr);*/
-                    free(er_pac); 
+                    handle_icmp_t3(sr, (sr_ethernet_hdr_t*)(pac->buf),
+                        (sr_ip_hdr_t*)(pac->buf + sizeof(sr_ethernet_hdr_t)),
+                        pac->len - sizeof(sr_ethernet_hdr_t), 3, 0);
                 }
                 sr_arpreq_destroy(&sr->cache, req);
             }
