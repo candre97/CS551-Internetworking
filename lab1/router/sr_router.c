@@ -52,7 +52,7 @@ void sr_init(struct sr_instance* sr) {
 
 void handle_arp_request(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
                         sr_arp_hdr_t* arp_hdr) {
-  /* Find the interface  */
+  /* iterate through all the interfaces  */
   struct sr_if* iface;
   for (iface = sr->if_list; iface != NULL; iface = iface->next) {
     if (iface->ip == arp_hdr->ar_tip) {
@@ -68,8 +68,7 @@ void handle_arp_request(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
       reply_eth_hdr->ether_type = htons(ethertype_arp);
 
       /* Construct ARP header */
-      sr_arp_hdr_t* reply_arp =
-          (sr_arp_hdr_t*)(buf + sizeof(sr_ethernet_hdr_t));
+      sr_arp_hdr_t* reply_arp = (sr_arp_hdr_t*)(buf + sizeof(sr_ethernet_hdr_t));
 
       reply_arp->ar_hrd = htons(arp_hrd_ethernet);
       reply_arp->ar_pro = htons(0x0800);
@@ -82,8 +81,7 @@ void handle_arp_request(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
       memcpy(reply_arp->ar_tha, arp_hdr->ar_sha, ETHER_ADDR_LEN);
       reply_arp->ar_tip = arp_hdr->ar_sip;
 
-      /*       print_hdrs(buf, arp_len);
-*/ /* Send it out through the chosen iface */
+      /* Send through the chosen iface */
       sr_send_packet(sr, buf, arp_len, iface->name);
 
       /* Free the buffer of arp_request */
@@ -95,7 +93,8 @@ void handle_arp_request(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
 
 void handle_arp_reply(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
                       sr_arp_hdr_t* arp_hdr, char* interface) {
-  /* parse out the ip and mac address from the arp reply message */
+  
+  /* get the ip and mac address from the arp reply message */
   uint32_t ip = arp_hdr->ar_sip;
   unsigned char* mac = arp_hdr->ar_sha;
 
@@ -107,22 +106,14 @@ void handle_arp_reply(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
   }
   assert(req->ip == ip);
 
-  /* Send all packets in the req */
+  /* Send all packets tied to the req */
   struct sr_packet* curr_pkt;
   for (curr_pkt = req->packets; curr_pkt != NULL; curr_pkt = curr_pkt->next) {
     sr_ethernet_hdr_t* pkt_eth_hdr = (sr_ethernet_hdr_t*)(curr_pkt->buf);
-    /*    memcpy(pkt_eth_hdr->ether_shost, arp_hdr->ar_tha, 6);
-     */
     memcpy(pkt_eth_hdr->ether_dhost, mac, 6);
-
-    /*    printf("just before sr_send_packet in handle_arp_reply iface %s\n",
-               curr_pkt->iface);
-        print_hdrs(curr_pkt->buf, curr_pkt->len);*/
-
     sr_send_packet(sr, curr_pkt->buf, curr_pkt->len, curr_pkt->iface);
   }
 
-  /* Destroy the request. The function will free the packets in req. */
   sr_arpreq_destroy(&(sr->cache), req);
 }
 
@@ -161,7 +152,7 @@ uint32_t routing_table_lookup(struct sr_instance* sr, uint32_t dest_ip,
     int prefix_length = bit_count(rt_mask);
 
     if (prefix_length < 0) {
-      printf("prefix_length < 0: prefix_length = %d\n", prefix_length);
+      printf("Negative prefix len = %d\n", prefix_length);
     }
 
     uint32_t masked_dest_ip = dest_ip & rt_mask;
@@ -204,13 +195,11 @@ void generate_arp_request(struct sr_instance* sr, struct sr_arpreq* req,
 
   memcpy(request_arp->ar_sha, iface->addr, ETHER_ADDR_LEN);
   request_arp->ar_sip = iface->ip;
-  /* Ignore the THA field in the request */
+
   request_arp->ar_tip = ip;
 
   req->sent = time(NULL);
-  /* Send it out through the chosen iface */
-  /*  printf("---------------------Send ARP request\n");
-   */
+  
   sr_send_packet(sr, buf, arp_len, iface->name);
   req->times_sent += 1;
 
@@ -222,8 +211,7 @@ void send_or_queue_packet(struct sr_instance* sr, uint8_t* packet,
                           unsigned int packet_len, uint32_t dest_ip) {
   char next_hop_iface[sr_IFACE_NAMELEN];
   uint8_t found = 0;
-  uint32_t next_hop_ip =
-      routing_table_lookup(sr, dest_ip, next_hop_iface, &found);
+  uint32_t next_hop_ip = routing_table_lookup(sr, dest_ip, next_hop_iface, &found);
   /* if there is no route, sent destination net unreachable to sender*/
   if (!found) {
     handle_icmp_t3(sr, (sr_ethernet_hdr_t*)(packet),
@@ -240,32 +228,24 @@ void send_or_queue_packet(struct sr_instance* sr, uint8_t* packet,
 
   if (entry) {
     memcpy(pkt_eth_hdr->ether_dhost, entry->mac, 6);
-    /*    printf("---------------------send_or_queue_packet sr_send_packet\n");
-        print_hdrs(packet, packet_len);
-        printf("---------------------send_or_queue_packet sr_send_packet\n");*/
-
     sr_send_packet(sr, packet, packet_len, iface->name);
-    return;
   }
-
-  /* Queue the request if not found */
-  struct sr_arpreq* req = sr_arpcache_queuereq(&(sr->cache), next_hop_ip,
-                                               packet, packet_len, iface->name);
-
-  /* Generate and send arp request */
-  generate_arp_request(sr, req, iface);
+  else {
+    /* Queue the request if not found */
+    struct sr_arpreq* req = sr_arpcache_queuereq(&(sr->cache), next_hop_ip,
+                                                 packet, packet_len, iface->name);
+    /* Generate and send arp request */
+    generate_arp_request(sr, req, iface);
+  }
 }
 
 void handle_icmp_echo(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
                       sr_ip_hdr_t* ip_hdr) {
-  size_t icmp_echo_len =
-      sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
+  size_t icmp_echo_len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
   uint8_t* buf = malloc(icmp_echo_len);
 
   /* Construct Ethernet header */
   sr_ethernet_hdr_t* reply_eth_hdr = (sr_ethernet_hdr_t*)buf;
-  /* Leave the destination mac address blank...use arp to find out */
-  /* memcpy(reply_eth_hdr->ether_dhost, eth_hdr->ether_shost, ETHER_ADDR_LEN); */
   memcpy(reply_eth_hdr->ether_shost, eth_hdr->ether_dhost, ETHER_ADDR_LEN);
   reply_eth_hdr->ether_type = htons(ethertype_ip);
 
@@ -281,7 +261,7 @@ void handle_icmp_echo(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
   reply_ip_hdr->ip_ttl = 0xff;
   reply_ip_hdr->ip_p = ip_protocol_icmp;
 
-  /* Flip the IP address */
+  /* Flip the dst/src IP address */
   reply_ip_hdr->ip_src = ip_hdr->ip_dst;
   reply_ip_hdr->ip_dst = ip_hdr->ip_src;
 
@@ -289,8 +269,7 @@ void handle_icmp_echo(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
   reply_ip_hdr->ip_sum = cksum(reply_ip_hdr, sizeof(sr_ip_hdr_t));
 
   /* Construct ICMP header */
-  sr_icmp_hdr_t* reply_icmp_hdr =
-      (sr_icmp_hdr_t*)(buf + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+  sr_icmp_hdr_t* reply_icmp_hdr = (sr_icmp_hdr_t*)(buf + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
   reply_icmp_hdr->icmp_type = 0;
   reply_icmp_hdr->icmp_code = 0;
 
@@ -302,8 +281,8 @@ void handle_icmp_echo(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
   free(buf);
 }
 
-/* Even though it is called type3 header, it also support type 11 */
-/* This function will send icmp message to the sender of this packet*/
+/* Even though it is called type3 header, it also support type 1 */
+/* This function will send icmp message to the ip_hdr->ip_src*/
 void handle_icmp_t3(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
                     sr_ip_hdr_t* ip_hdr, unsigned int ip_packet_len,
                     uint8_t type, uint8_t code) {
@@ -376,11 +355,12 @@ void handle_ip_packet_to_me(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
     if (icmp_hdr->icmp_type == 8 && icmp_hdr->icmp_code == 0) {
       handle_icmp_echo(sr, eth_hdr, ip_hdr);
     }
-    /* silently drop other icmp message to me */
   } else if (ip_proto == 0x06 || ip_proto == 0x11) {
     handle_icmp_t3(sr, eth_hdr, ip_hdr, ip_packet_len, 3, 3);
   }
-  /* silently drop other ip packets to me */
+  else {
+    fprintf(stderr, "Received an IP packet that was not ICMP\n");
+  }
 }
 
 void handle_icmp_time_exceed(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
@@ -403,7 +383,6 @@ void handle_icmp_time_exceed(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
   reply_ip_hdr->ip_tos = 0;
   reply_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
   reply_ip_hdr->ip_id = htons(0);
-
   reply_ip_hdr->ip_off = htons(0);
   reply_ip_hdr->ip_ttl = 0xff;
   reply_ip_hdr->ip_p = ip_protocol_icmp;
@@ -413,7 +392,6 @@ void handle_icmp_time_exceed(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
   /* When sending time exceed, use this router's ip as src */
   reply_ip_hdr->ip_src = iface->ip;
   reply_ip_hdr->ip_dst = ip_hdr->ip_src;
-
   reply_ip_hdr->ip_sum = 0;
   reply_ip_hdr->ip_sum = cksum(reply_ip_hdr, sizeof(sr_ip_hdr_t));
 
@@ -444,12 +422,10 @@ void handle_icmp_time_exceed(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
 void handle_ip_packet_forward(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
                               sr_ip_hdr_t* ip_hdr, unsigned int len,
                               char* interface) {
-  /*  printf("forward a packet\n");
-    print_hdrs(eth_hdr, len);*/
   if (ip_hdr->ip_ttl == 1) {
-    printf("sent icmp time exceed\n");
+    printf("Time to live is over!!\n");
     handle_icmp_time_exceed(sr, eth_hdr, ip_hdr, len, interface);
-    return; /* drop the packet*/
+    return; 
   }
 
   /* decrement ttl and re-checksum the ip packet */
@@ -457,7 +433,7 @@ void handle_ip_packet_forward(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr
   ip_hdr->ip_sum = 0;
   ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
 
-  send_or_queue_packet(sr, (uint8_t*)eth_hdr, len, ntohl(ip_hdr->ip_dst));
+  send_or_queue_packet(sr, (uint8_t*) eth_hdr, len, ntohl(ip_hdr->ip_dst));
 }
 
 void handle_ip_packet(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
@@ -478,11 +454,7 @@ void handle_ip_packet(struct sr_instance* sr, sr_ethernet_hdr_t* eth_hdr,
   struct sr_if* if_itr;
   for (if_itr = sr->if_list; if_itr != NULL;
        if_itr = if_itr->next) {
-    /*    printf("ipwalker ip: \n");
-        print_addr_ip_int(if_itr->ip);
 
-        printf("ip_hdr ip: \n");
-        print_addr_ip_int(ip_hdr->ip_dst);*/
     if (if_itr->ip == ip_hdr->ip_dst) {
       printf("ip packet for me\n");
       handle_ip_packet_to_me(sr, eth_hdr, ip_hdr, len - sizeof(sr_ethernet_hdr_t),
@@ -520,9 +492,7 @@ void sr_handlepacket(struct sr_instance* sr, uint8_t* packet /* lent */,
   assert(interface);
 
   printf("*** -> Received packet of length %d \n", len);
-  /*print_hdrs(packet, len);
-   */
-  /* fill in code here */
+
   unsigned int ether_len = sizeof(sr_ethernet_hdr_t);
   if (len < ether_len) {
     fprintf(stderr, "packet too short\n");
@@ -568,5 +538,4 @@ void sr_handlepacket(struct sr_instance* sr, uint8_t* packet /* lent */,
       printf("not implemented: ethertype %d", ether_type);
   }
 
-} /* end sr_ForwardPacket */
-/*ted> <rdf:Bag/> </iptcExt:LocationCreated> <iptcExt:LocationShown> <rdf:Bag/> </iptcExt:LocationShown> <iptcExt:ArtworkOrObject> <rdf:Bag/> </iptcExt:ArtworkOrObject> <iptcExt:RegistryId> <rdf:Bag/> </iptcExt:RegistryId> <xmpMM:History> <rdf:Seq> <rdf:li stEvt:action="saved" stEvt:changed="/" stEvt:instanceID="xmp.iid:6d4aac16-e0b2-6644-83ba-fddcbe75bf6e" stEvt:softwareAgent="Adobe Photoshop CC (Windows)" stEvt:when="2018-07-23T13:57:33+04:00"/> <rdf:li stEvt:action="saved" stEvt:changed="/" stEvt:instanceID="xmp.iid:b0ccf03f-7a4d-684d-8540-519b6d185bc1" stEvt:softwareAgent="Adobe Photoshop CC (Windows)" stEvt:when="2018-10-23T18:46:44+04:00"/> <rdf:li stEvt:action="converted" stEvt:parameters="from image/tiff to image/png"/> <rdf:li stEvt:action="derived" stEvt:parameters="converted from image/tiff to image/png"/> <rdf:li stEvt:action="saved" stEvt:changed="/" stEvt:instanceID="xmp.iid:0d7aa2dc-a752-3b4a-aeeb-eff50fced4a6" stEvt:softwareAgent="Adobe Photoshop CC (Windows)" stEvt:when="2018-10-23T18:46:44+04:00"/> <rdf:li stEvt:action="saved" stEvt:changed="/" stEvt:instanceID="xmp.iid:0a4f82bb-8993-45e5-9823-783289b22d3e" stEvt:softwareAgent="Gimp 2.10 (Windows)" stEvt:when="2018-10-23T19:01:23"/> </rdf:Seq> </xmpMM:History> <xmpMM:DerivedFrom stRef:documentID="adobe:docid:photoshop:32a05222-fa5d-334a-9286-dcd956188f3c" stRef:instanceID="xmp.iid:b0ccf03f-7a4d-684d-8540-519b6d185bc1" stRef:originalDocumentID="uuid:AB3DD37B9268E711B0A1B45B8CDCFF4F"/> <plus:ImageSupplier> <rdf:Seq/> </plus:ImageSupplier> <plus:ImageCreator> <rdf:Seq/> </plus:ImageCreator> <plus:CopyrightOwner> <rdf:Seq/> </plus:CopyrightOwner> <plus:Licensor> <rdf:Seq/> </plus:Licensor> <tiff:BitsPerSample> <rdf:Seq> <rdf:li>8, 8, 8</rdf:li> </rdf:Seq> </tiff:BitsPerSample> </rdf:Description> </rdf:RDF> </x:xmpmeta> <?xpacket end="w"?>*/
+} 
