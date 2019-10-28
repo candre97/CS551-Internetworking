@@ -537,5 +537,4 @@ void sr_handlepacket(struct sr_instance* sr, uint8_t* packet /* lent */,
     default:
       printf("not implemented: ethertype %d", ether_type);
   }
-
 } 
