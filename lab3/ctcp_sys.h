@@ -54,7 +54,6 @@ typedef struct ctcp_segment {
                             does not include this field */
 } ctcp_segment_t;
 
-
 /**
  * Call on this to read input locally to be put into segments that will be sent
  * to the destination specified by conn. Reads up to len bytes into the provided
