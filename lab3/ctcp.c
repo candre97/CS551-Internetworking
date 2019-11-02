@@ -18,21 +18,12 @@
 
 #define DEBUG 1
 
-/* got the fprintf code from stdio-common, 
-  edited to make only print while debugging */
-int printt (FILE *stream, const char *format, ...)
-{
-#ifdef DEBUG
-  va_list arg;
-  int done;
-  va_start (arg, format);
-  done = __vfprintf_internal (stream, format, arg, 0);
-  va_end (arg);
-  return done;
-#endif
-
-  return -1; 
-}
+/* Add useful and needed info to a segment */
+typedef struct {
+  ctcp_segment_t* seg; 
+  long            time_last_sent;
+  uint8_t         times_transmitted;
+} wrapped_seg_t; 
 
 /**
  * Connection state.
@@ -57,7 +48,6 @@ struct ctcp_state {
                                this if this is the case for you */
 
   linked_list_t* unsent_segments; /* segment has been stdin'd, but not sent */
-  linked_list_t* unackd_segments; /* segment has been sent but not ack'd */
 
   linked_list_t* unoutputted_segments; /* received, not yet sent to stdout */
   /* FIXME: Add other needed fields. */
@@ -97,7 +87,9 @@ ctcp_state_t *ctcp_init(conn_t *conn, ctcp_config_t *cfg) {
   if (conn == NULL) {
     return NULL;
   }
-  printt(stderr, "initializing\n"); 
+#ifdef DEBUG
+  fprintf(stderr, "initializing\n"); 
+#endif
   /* Established a connection. Create a new state and update the linked list
      of connection states. */
   ctcp_state_t *state = calloc(sizeof(ctcp_state_t), 1);
@@ -162,13 +154,62 @@ void ctcp_destroy(ctcp_state_t *state) {
 void ctcp_read(ctcp_state_t *state) {
   /* FIXME */
   if(state->eof_stdind == true) {
-    printt(stderr, "ERROR, RX DATA AFTER EOF STDIN'd\n"); 
+#ifdef DEBUG
+    fprintf(stderr, "ERROR, RX DATA AFTER EOF STDIN'd\n"); 
+    return;
+#endif
   }
 
-  uint8_t* buffer;     /* buffer to read into from stdin */
+  uint8_t buffer[MAX_SEG_DATA_SIZE+1];     /* buffer to read into from stdin */
   int read_from_stdin; /* number of bytes read from stdin */
   /* create TCP segment */
-  ctcp_segment_t* seg; 
+  wrapped_seg_t* wrapped_segm = malloc(sizeof(wrapped_seg_t)); 
+  memset(wrapped_segm, 0, sizeof(wrapped_seg_t)); 
+
+  while(1) {
+    read_from_stdin = conn_input(state->conn, buffer, MAX_SEG_DATA_SIZE); 
+    if(read_from_stdin > 0) {
+        buffer[read_from_stdin] = 0;
+    }
+    else {
+#ifdef DEBUG
+    fprintf(stderr, "EOF read, or read input error\n"); 
+#endif
+      break;  
+    }
+    buffer[read_from_stdin] = 0; /* null terminate whatever you read in */
+
+#ifdef DEBUG
+    fprintf(stderr, "\nRead in these bytes: %s\n", buffer); 
+#endif
+
+    memset(wrapped_segm, 0, sizeof(wrapped_seg_t) + read_from_stdin); 
+
+    if(wrapped_segm == NULL){
+#ifdef DEBUG
+      fprintf(stderr, "ERROR setting the wrapped seg pointer\n"); 
+      break; 
+#endif
+    }
+
+    /* Do some segment setup and add to the linked list of packets we have to send */
+    wrapped_segm->seg->seqno = htonl(state->byte_input + 1); 
+    wrapped_segm->seg->len = htonl((uint16_t ) (sizeof(ctcp_segment_t) + read_from_stdin)); 
+    memcpy(wrapped_segm->seg->data, buffer, read_from_stdin);
+    ll_add(state->unackd_segments, wrapped_segm); 
+
+    /* update the seqno to include everything we've just read in */
+    state->byte_input += read_from_stdin; 
+  }
+  if (read_from_stdin != -1) {
+#ifdef DEBUG
+    fprintf(stderr, "EOF never reached... \n");
+#endif
+    return; 
+  }
+
+  /* create an EOF segment */
+
 
   /* send() */
 
