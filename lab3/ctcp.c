@@ -17,6 +17,7 @@
 #include "ctcp_utils.h"
 
 #define DEBUG 1
+#define MAX_TRANSMITS 5
 
 /* Add useful and needed info to a segment */
 typedef struct {
@@ -47,7 +48,7 @@ struct ctcp_state {
                                necessarily need a linked list. You may remove
                                this if this is the case for you */
 
-  linked_list_t* unsent_segments; /* segment has been stdin'd, but not sent */
+  linked_list_t* unackd_segments; /* segment has been stdin'd, but not sent */
 
   linked_list_t* unoutputted_segments; /* received, not yet sent to stdout */
   /* FIXME: Add other needed fields. */
@@ -101,7 +102,6 @@ ctcp_state_t *ctcp_init(conn_t *conn, ctcp_config_t *cfg) {
 
   /* Set fields. */
   state->conn = conn;
-  state->unsent_segments = ll_create();
   state->unackd_segments = ll_create();
   state->unoutputted_segments = ll_create();
   memcpy(state->config, cfg, sizeof(ctcp_config_t));
@@ -140,12 +140,158 @@ void ctcp_destroy(ctcp_state_t *state) {
   /* FIXME: Do any other cleanup here. */
 
   /* TODO free linked list */
+  int i = 0;
+  for(i; i < ll_length(state->unackd_segments); i++) {
+    ll_node_t* front = ll_front(state->unackd_segments);
+    if(front == NULL) {
+#ifdef DEBUG
+      fprintf(stderr, "unackd front is NULL, i: %i, len: %d\n", i, 
+        ll_length(state->unackd_segments)); 
+#endif
+      break; 
+    }
+    free(front->object); 
+    ll_remove(state->unackd_segments, front); 
+  }
 
+  for(i = 0; i < ll_length(state->unoutputted_segments); i++) {
+    ll_node_t* front = ll_front(state->unoutputted_segments); 
+    if(front == NULL) {
+#ifdef DEBUG
+      fprintf(stderr, "unoutputted front is NULL, i: %i, len: %d\n", i, 
+        ll_length(state->unoutputted_segments)); 
+#endif
+      break; 
+    }
+    free(front->object); 
+    ll_remove(state->unackd_segments, front); 
+  }
+
+  ll_destroy(state->unackd_segments); 
+  ll_destroy(state->unoutputted_segments); 
 
   free(state);
   end_client();
 }
 
+/*  
+    called after sending a segment
+    verifies that the segment was sent successfully
+*/
+bool send_checks_passed(ctcp_state_t* state, wrapped_seg_t* w_seg, int num_sent) {
+  bool retval = false;
+  int expected = ntohs(w_seg->seg->len);
+  switch(num_sent) {
+    case -1:
+#ifdef DEBUG
+      fprintf(stderr, "Error on Send! Taking down connection\n"); 
+#endif    
+      ctcp_destroy(state); 
+      retval = false;
+      break; 
+    case expected:
+      retval = true; 
+      break; 
+    default: 
+#ifdef DEBUG
+      fprintf(stderr, "Incorrect number of bytes sent\n"); 
+      fprintf(stderr, "Num_bytes_sent: %i, Expected: %i\n", 
+        num_sent, expected);
+#endif    
+      retval = false; 
+      break;
+  }
+
+  return retval; 
+}
+
+/*  For sending a normal segment of data
+    does nothing to the flags for generality
+    setting flags must be done before passing the seg
+    into this function
+*/
+void send_seg(ctcp_state_t* state, wrapped_seg_t* w_seg) {
+  
+  if(state == NULL || w_seg == NULL) {
+#ifdef DEBUG
+    fprintf(stderr, "ERROR, State or seg passed in was NULL\n"); 
+#endif
+    return; 
+  }
+
+  /* Set everything in the ctcp_segment */
+  w_seg->seg->window = htons(state->config->send_window); 
+  w_seg->seg->cksum = 0;
+  w_seg->seg->ackno = htonl(state->ack_recd + 1); 
+  w_seg->seg->cksum = cksum(w_seg->seg, ntohs(w_seg->seg->len)); 
+
+  /* Send the segment */
+  int num_sent = conn_send(state->conn, w_seg->seg, ntohs(w_seg->seg->len)); 
+  long time_sent = current_time();
+
+  if(send_checks_passed(state, w_seg, num_sent)) {
+#ifdef DEBUG
+    fprintf(stderr, "Sent this segment successfully:\n");
+    print_hdr_ctcp(w_seg->seg);  
+#endif
+    w_seg->time_last_sent = time_sent; 
+    state->byte_sent += num_sent; 
+  }
+}
+
+/* 
+  Performs a number of checks on the data that was stdin'd
+  sends the seg calling another helper function if it meets
+  the criteria laid out in the lab handout
+
+NOTE TO SELF: for part B, For many connections, I can use this function 
+looping thru the states list
+*/
+void check_and_send(ctcp_state_t* state) {
+  if(state == NULL) {
+#ifdef DEBUG
+    fprintf(stderr, "ERROR, State passed in was NULL\n"); 
+#endif
+    return;
+  }
+
+  if(ll_length(state->unackd_segments) == 0) {
+#ifdef DEBUG
+    fprintf(stderr, "No Segments to Send\n"); 
+#endif
+    return;
+  }
+
+  ll_node_t* node = ll_front(state->unackd_segments); 
+  wrapped_seg_t* w_seg = (wrapped_seg_t* ) (node->object);
+  
+  if(w_seg->times_transmitted > 5) {
+#ifdef DEBUG
+    fprintf(stderr, "Exceeded number of retransmit times\n"); 
+#endif
+    ctcp_destroy(state);
+    return; 
+  }
+
+  /* We are ready to send the segment if:
+    the segment has already been sent (no ACK recv for it)
+      at least rt_timeout has passed since last send
+    or the receiver has let us know to send the next seg
+  */
+  if(state->ack_recd < state->byte_sent) {
+    if((current_time() - w_seg->time_last_sent) > state->config->rt_timeout) {
+      send_seg(state, w_seg); 
+    }
+  }
+  else { /* ack # > seqno sent # --> receiver ready for more!! */
+    send_seg(state, w_seg); 
+#ifdef DEBUG
+    if(w_seg->times_transmitted != 0) {
+      fprintf(stderr, "Not first time sent, but should be!!\n"); 
+    }
+#endif
+  }
+}
 
 /* 
   ctcp_read(): This is called if there is input to be read. Create a segment 
@@ -156,8 +302,8 @@ void ctcp_read(ctcp_state_t *state) {
   if(state->eof_stdind == true) {
 #ifdef DEBUG
     fprintf(stderr, "ERROR, RX DATA AFTER EOF STDIN'd\n"); 
-    return;
 #endif
+    return;
   }
 
   uint8_t buffer[MAX_SEG_DATA_SIZE+1];     /* buffer to read into from stdin */
@@ -201,6 +347,7 @@ void ctcp_read(ctcp_state_t *state) {
     /* update the seqno to include everything we've just read in */
     state->byte_input += read_from_stdin; 
   }
+
   if (read_from_stdin != -1) {
 #ifdef DEBUG
     fprintf(stderr, "EOF never reached... \n");
@@ -208,14 +355,27 @@ void ctcp_read(ctcp_state_t *state) {
     return; 
   }
 
-  /* create an EOF segment */
+  /* you recd EOF, create a FIN segment */
+  memset(wrapped_segm, 0, sizeof(wrapped_seg_t));
 
+  if(wrapped_segm == NULL) {
+#ifdef DEBUG
+    fprintf(stderr, "NULL wrapped segm\n");
+#endif
+    return; 
+  }
 
-  /* send() */
+  /* Setup a FIN packet */
+  wrapped_segm->seg->flags |= htonl(FIN);
+  wrapped_segm->seg->len = htons(sizeof(ctcp_segment_t));
+  wrapped_segm->seg->seqno = htonl(state->byte_input + 1);
+  ll_add(state->unackd_segments, wrapped_segm); 
 
-  /*  */
+  state->eof_stdind = true; 
+  
+  /* send() the new data */
+  check_and_send(state);
 
-  /*  */
 }
 
 /* 
