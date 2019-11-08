@@ -54,9 +54,10 @@ struct ctcp_state {
   /* variables related to sending */
   uint32_t seq_num;          /* current seq num*/
   uint32_t seq_num_next;    /* == seq_num + data_bytes */ 
-  uint32_t ack_recd_num;    /* you receive this, should be equal to seq_num_next at time of receiving packet */ 
-  bool eof_stdind;          /* read in, then must send fin */
+  uint32_t send_num;    /* helps with other variables */ 
+  bool fin_sent;          /* read in, then sent fin */
   bool ack_recd;            /* set false after sending, true when that seg is ack'd */
+  bool retrans_to; 
 
   /* variables related to receiving */
   uint32_t ack_num;   /* for keeping track when sending ACKs. == received seq_num + data_bytes*/ 
@@ -83,52 +84,43 @@ ctcp_state_t *ctcp_init(conn_t *conn, ctcp_config_t *cfg) {
   if (conn == NULL) {
     return NULL;
   }
-#ifdef DEBUG
-    fprintf(stderr, "1\n"); 
-#endif
+
   /* Established a connection. Create a new state and update the linked list
      of connection states. */
   ctcp_state_t *state = calloc(sizeof(ctcp_state_t), 1);
 
-#ifdef DEBUG
-    fprintf(stderr, "2\n"); 
-#endif
   /* Set fields. Initial ACK_num = 1 */
   
   state->config.recv_window = cfg->recv_window;
   state->config.send_window = cfg->send_window;
   state->config.timer = cfg->timer;
   state->config.rt_timeout = cfg->rt_timeout;
-#ifdef DEBUG
-    fprintf(stderr, "3\n"); 
-#endif
+
   state->unackd_segments = ll_create();
   state->unoutputted_segments = ll_create();
   state->seq_num = 1;
   state->seq_num_next = 1;
   state->ack_num = 1;
-  state->ack_recd_num = 1;
-  state->eof_stdind = false; 
+  state->send_num = 1;
+  state->fin_sent = false; 
   state->fin_recd = false; 
   state->ack_recd = false;
-#ifdef DEBUG
-    fprintf(stderr, "4\n"); 
-#endif
-
-
+  state->retrans_to = false; 
 
   state->next = state_list;
   state->prev = &state_list;
+  
   if (state_list)
     state_list->prev = &state->next;
   state_list = state;
 
   state->conn = conn;
 
+  free(cfg); 
+
 #ifdef DEBUG
     fprintf(stderr, "Initialization complete\n"); 
 #endif
-  free(cfg); 
   return state;
 }
 
@@ -170,26 +162,34 @@ void ctcp_destroy(ctcp_state_t *state) {
   end_client();
 }
 
-void create_data_seg(ctcp_state_t* state, wrapped_seg_t* w_seg, int data_bytes, char* data, uint32_t flag) {
-  
-  w_seg->seg->len = htons((uint16_t) data_bytes + sizeof(ctcp_segment_t));
-  w_seg->seg->seqno = htonl(state->seq_num_next); 
- /* w_seg->seg->ackno = htonl(state->seq_num_recd + 1);*/
-  w_seg->seg->flags = flag;
-  w_seg->seg->window = htons(state->config.recv_window); 
-
-  w_seg->seg->cksum = 0;
-  w_seg->seg->cksum = cksum(w_seg->seg, w_seg->seg->len); 
+void create_data_seg(ctcp_state_t* state, ctcp_segment_t* seg, int data_bytes, char* data, uint32_t flag) {
+  seg->len = htons((uint16_t) data_bytes + sizeof(ctcp_segment_t));
+  seg->window = htons(state->config.recv_window); 
+  seg->seqno = htonl(state->seq_num_next); 
+  seg->ackno = htonl(state->ack_num);
+  seg->flags = flag;
+/*  seg->cksum = 0;*/
+  seg->cksum = cksum(seg, ntohs(seg->len)); 
 
   return; 
 }
 
-void create_fin_seg(ctcp_state_t* state, wrapped_seg_t* w_seg, uint32_t flags) {
-  w_seg->seg->seqno = htonl(state->seq_num_next); 
-  w_seg->seg->ackno = htonl(state->ack_num); 
-  w_seg->seg->len = htons(sizeof(ctcp_segment_t)); 
-  w_seg->seg->cksum = 0;
-  w_seg->seg->cksum = cksum(w_seg->seg, w_seg->seg->len); 
+void create_fin_seg(ctcp_state_t* state, ctcp_segment_t* seg, uint32_t flags) {
+  seg->len = htons((uint16_t ) sizeof(ctcp_segment_t)); 
+  seg->window = htons(state->config.recv_window); 
+  seg->seqno = htonl(state->seq_num_next); 
+  seg->ackno = htonl(state->ack_num); 
+  seg->flags = flags;
+/*  seg->cksum = 0;*/
+  seg->cksum = cksum(seg, ntohs(seg->len)); 
+}
+
+uint32_t max_size(ctcp_state_t* state) {
+  uint32_t max = state->config.send_window + state->send_num - state->seq_num_next; 
+  if(max > MAX_SEG_DATA_SIZE) {
+    max = MAX_SEG_DATA_SIZE; 
+  }
+  return max;
 }
 
 void ctcp_read(ctcp_state_t *state) {
@@ -198,63 +198,69 @@ void ctcp_read(ctcp_state_t *state) {
     fprintf(stderr, "input for me to read!\n"); 
 #endif
 
-  if(state->eof_stdind == true) {
+  if(state->fin_sent == true) {
 #ifdef DEBUG
-    fprintf(stderr, "ERROR, RX DATA AFTER EOF STDIN'd\n"); 
+    fprintf(stderr, "ERROR, RX DATA AFTER SENT FIN\n"); 
 #endif
     return;
   }
-  if(!state->ack_recd) {
+
+  if(!state->ack_recd && (state->config.send_window == MAX_SEG_DATA_SIZE)) {
 #ifdef DEBUG
     fprintf(stderr, "Error, Still waiting on previous ACK\n"); 
 #endif
     return;
-  } 
+  }
 
-  uint32_t flags = 0; /* maybe just have set to ACK */
+  uint32_t max = max_size(state);
 
-  char buffer[MAX_SEG_DATA_SIZE+1]; 
-  int num_bytes = conn_input(state->conn, buffer, MAX_SEG_DATA_SIZE); 
+  uint32_t flags = TH_ACK; /* maybe just have set to ACK */
+
+  char* buffer = (char* ) malloc(max); 
+  int num_bytes = conn_input(state->conn, buffer, max); 
 
   int dat_len = num_bytes; 
   if(dat_len < 0) {
     dat_len = 0; 
   }
 
-  wrapped_seg_t* w_seg = malloc(sizeof(wrapped_seg_t) + dat_len); 
-  memset(w_seg, 0, sizeof(wrapped_seg_t) + dat_len); 
+  ctcp_segment_t* seg = (ctcp_segment_t* ) calloc(sizeof(ctcp_segment_t) + dat_len, 1); 
 
   if(num_bytes == -1) {
     flags |= TH_FIN; 
-    state->eof_stdind = true;
+    state->fin_sent = true;
 #ifdef DEBUG
     fprintf(stderr, "EOF read in\n"); 
 #endif
-    create_fin_seg(state, w_seg, flags); /* known dat_len = 0 */
+    create_fin_seg(state, seg, flags); /* known dat_len = 0 */
   }
   else if(num_bytes == 0) {
 #ifdef DEBUG
-    fprintf(stderr, "No data available\n"); 
+    fprintf(stderr, "No more data available\n"); 
 #endif
+    flags |= TH_FIN; 
+    create_fin_seg(state, seg, flags);
     return; 
   }
   else {
     /* create segment*/
-    create_data_seg(state, w_seg, num_bytes, buffer, flags); 
+    create_data_seg(state, seg, num_bytes, buffer, flags); 
   }
+  free(buffer); 
 
   /* send seg */
-  int seg_len = w_seg->seg->len;
-  if(conn_send(state->conn, w_seg->seg, seg_len) < 0) {
-#ifdef DEBUG
-    fprintf(stderr, "Error on send, destroying state\n"); 
-#endif
-    ctcp_destroy(state); 
-  }
+  uint16_t seg_len = ntohs(seg->len);
   /* deal with some variables to update */
-  state->ack_recd = false;
+  
+  wrapped_seg_t* w_seg = (wrapped_seg_t* ) malloc(sizeof(wrapped_seg_t)); 
+  w_seg->seg = seg; 
+
+  conn_send(state->conn, seg, seg_len); 
   w_seg->time_last_sent = current_time();
   w_seg->times_transmitted = 1;
+  state->ack_recd = false;
+  
+
   /* update the number of bytes you've read in */
   switch(num_bytes) {
     case -1: 
