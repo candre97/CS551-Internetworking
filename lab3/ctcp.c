@@ -126,7 +126,7 @@ void ctcp_destroy(ctcp_state_t *state) {
   ll_node_t* node = ll_front(state->unackd_segments);
   ll_node_t* next_node;
   while(node != NULL) {
-    wrapped_seg_t* w_seg = (wrapped_seg_t*)(node->object);
+    wrapped_seg_t* w_seg = (wrapped_seg_t* ) (node->object);
     /* breaking down the russian doll of pointers */
     free(w_seg->seg);
     free(w_seg);
@@ -395,6 +395,11 @@ void ctcp_receive(ctcp_state_t *state, ctcp_segment_t *segment, size_t len) {
   }
 }
 
+/* 
+  algorithm that I implemented closely related to this tutorial:
+  https://www.geeksforgeeks.org/delete-a-given-node-in-linked-list
+  -under-given-constraints/
+*/
 void ctcp_output(ctcp_state_t *state) {
 
   /* check for available space conn_buffspace */
@@ -438,7 +443,7 @@ void ctcp_timer() {
     /* loop through each unackd segment in that state */
     while(node != NULL) {
       int cur_time = current_time();
-      wrapped_seg_t* w_seg = (wrapped_seg_t*)(node->object);
+      wrapped_seg_t* w_seg = (wrapped_seg_t* ) (node->object);
       /* determine if you've transmitted too many times, if so destroy state */
       if (w_seg->times_transmitted > 5) {
         ctcp_destroy(state);
