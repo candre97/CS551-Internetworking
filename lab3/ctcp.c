@@ -199,7 +199,7 @@ void ctcp_read(ctcp_state_t *state) {
   seg->seqno = htonl(state->seq_num_next);
   seg->ackno = htonl(state->ack_num); 
   seg->flags = flags;   
-  seg->window = state->config.recv_window;
+  seg->window = htons(state->config.recv_window);
   seg->cksum = cksum(seg, seg_len);
   free(buffer);
 
@@ -268,7 +268,7 @@ void send_ack_c(ctcp_state_t* state) {
   seg->seqno = htonl(state->seq_num_next);
   seg->ackno = htonl(state->ack_num); 
   seg->flags = TH_ACK;
-  seg->window = state->config.recv_window;
+  seg->window = htons(state->config.recv_window);
   seg->len = htons(seg_len); 
   seg->cksum = cksum(seg, seg_len);
   if(conn_send(state->conn, seg, seg_len) < 0) {
@@ -405,6 +405,7 @@ void ctcp_output(ctcp_state_t *state) {
   /* check for available space conn_buffspace */
   unsigned int space_avail = conn_bufspace(state->conn);
   ll_node_t* node = ll_front(state->unoutputted_segs);
+  bool ack_needed = false; 
   while(node != NULL) {
     ctcp_segment_t* segment = (ctcp_segment_t* ) node->object;
 
@@ -423,7 +424,7 @@ void ctcp_output(ctcp_state_t *state) {
        remove the segment from the unoutputted ll 
     */
     conn_output(state->conn, segment->data, dat_len);
-    send_ack_c(state);
+    ack_needed = true;
     space_avail -= dat_len;
     state->ack_num += dat_len;
     ll_node_t* node_next = node->next;          
@@ -431,6 +432,10 @@ void ctcp_output(ctcp_state_t *state) {
 
     free(segment);
     node = node_next;
+  }
+
+  if(ack_needed) {
+    send_ack_c(state); 
   }
 }
 
