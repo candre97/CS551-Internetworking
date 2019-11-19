@@ -32,7 +32,7 @@ int main() {
   /* Loop program forever so it can keep receiving input. */
   while (1) {
     memset(buf, 0, 1000);
-
+    
     /* Read input. */
     int r = read(0, buf, 1000);
     if (r > 0)
