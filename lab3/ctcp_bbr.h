@@ -62,22 +62,43 @@ typedef enum {
 	BBR_DRAIN,	/* drain any queue created during startup */
 	BBR_PROBE_BW,	/* discover, share bw: pace around estimated bw */
 	BBR_PROBE_RTT,	/* cut cwnd to min to probe min_rtt */
-} bbr_mode_t;
+} bbr_mode;
 
 
 /* BBR congestion control block */
 typedef struct {
-	uint32_t	min_rtt_ms;	        /* min RTT in min_rtt_win_sec window */
-	uint32_t	probe_rtt_done_stamp;   /* end time for BBR_PROBE_RTT mode */
-	uint32_t	rtt_cnt;	    /* count of packet-timed rounds elapsed */
-	uint32_t    next_rtt_delivered; /* scb->tx.delivered at end of round */
-	uint32_t    mode;		     /* current bbr_mode in state machine */
-	float 		max_bw; 			/* hold the current measurement for max bw */
+	uint32_t	min_rtt_ms;	        		/* min RTT in min_rtt_win_sec window */
+	uint32_t	min_rtt_stamp;	        	/* timestamp of min_rtt_ms */
+	uint32_t	probe_rtt_done_stamp;   	/* end time for BBR_PROBE_RTT mode */
+	uint32_t	rtt_cnt;	    			/* count of packet-timed rounds elapsed */
+	uint32_t    next_rtt_delivered; 		/* scb->tx.delivered at end of round */
+	bbr_mode 	mode,		     /* current bbr_mode in state machine */
+		prev_ca_state:3,     /* CA state on previous ACK */
+		packet_conservation:1,  /* use packet conservation? */
+		restore_cwnd:1,	     /* decided to revert cwnd to old value */
+		round_start:1,	     /* start of packet-timed tx->ack round? */
+		tso_segs_goal:7,     /* segments we want in each skb we send */
+		idle_restart:1,	     /* restarting after idle? */
+		probe_rtt_round_done:1,  /* a BBR_PROBE_RTT round at 4 pkts? */
+		unused:5,
+		lt_is_sampling:1,    /* taking long-term ("LT") samples now? */
+		lt_rtt_cnt:7,	     /* round trips in long-term interval */
+		lt_use_bw:1;	     /* use lt_bw as our bw estimate? */
+	uint32_t	lt_bw;		     /* LT est delivery rate in pkts/uS << 24 */
+	uint32_t	lt_last_delivered;   /* LT intvl start: tp->delivered */
+	uint32_t	lt_last_stamp;	     /* LT intvl start: tp->delivered_mstamp */
+	uint32_t	lt_last_lost;	     /* LT intvl start: tp->lost */
 	uint32_t	pacing_gain:10,	/* current gain for setting pacing rate */
+		cwnd_gain:10,	/* current gain for setting cwnd */
+		full_bw_cnt:3,	/* number of rounds without large bw gains */
+		cycle_idx:3,	/* current index in pacing_gain cycle array */
+		unused_b:6;
 	uint32_t	prior_cwnd;	/* prior cwnd upon entering loss recovery */
 	uint32_t	full_bw;	/* recent bw, to estimate if pipe is full */
 } bbr_t;
 
+/* function called on ACK (pg 23 of notes) */
+void on_ack(bbr_t* bbr);
 
 /* initialize a bbr struct with initial variables */
 void bbr_init(bbr_t* bbr); 
@@ -89,8 +110,7 @@ void bbr_update_bw(bbr_t* bbr, long rtt, int bytes);
 void bbr_update_rtt(bbr_t* bbr, long rtt); 
 
 /* handles top level cycling through all of the modes */
-void bbr_main(struct sock *sk, const struct rate_sample *rs); 
-
+void bbr_main(bbr_t* bbr); 
 
 
 #endif
