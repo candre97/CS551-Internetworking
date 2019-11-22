@@ -6,6 +6,8 @@
  * ctcp_bbr.c.
  *
  *****************************************************************************/
+#include <stdint.h>
+#include "ctcp_utils.h"
 
 #ifndef CTCP_BBR_H
 #define CTCP_BBR_H
