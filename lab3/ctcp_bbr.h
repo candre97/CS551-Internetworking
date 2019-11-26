@@ -1,4 +1,4 @@
-/******************************************************************************
+/*****************************************************************************
  * ctcp_bbr.h
  * ------
  * Contains definitions for constants functions, and structs you will need for
@@ -28,6 +28,16 @@ static int bbr_bw_rtts	= CYCLE_LEN + 2; /* win len of bw filter (in rounds) */
 static uint32_t bbr_min_rtt_win_sec = 10;	 /* min RTT filter window (in sec) */
 static uint32_t bbr_probe_rtt_mode_ms = 200;	 /* min ms at cwnd=4 in BBR_PROBE_RTT */
 static int bbr_min_tso_rate	= 1200000;  /* skip TSO below here (bits/sec) */
+
+
+/* gain values as floats */
+int gain_cycle_len = 8;
+
+static float startip_pacing_gain = 2.88672;
+static float drain_pacing_gain = 1/2.88672;
+float pacing_gain_cycle[] = {5/4, 3/4, 1, 1, 1, 1, 1, 1};
+
+
 
 /* We use a high_gain value chosen to allow a smoothly increasing pacing rate
  * that will double each RTT and send the same number of packets per RTT that
@@ -66,38 +76,19 @@ typedef enum {
 	BBR_PROBE_RTT,	/* cut cwnd to min to probe min_rtt */
 } bbr_mode;
 
-
-/* BBR congestion control block */
+/* BBR congestion control block 
+https://tools.ietf.org/id/draft-cardwell-iccrg-bbr-congestion-control-00.html
+*/
 typedef struct {
-	uint32_t	min_rtt_ms;	        		/* min RTT in min_rtt_win_sec window */
-	uint32_t	min_rtt_stamp;	        	/* timestamp of min_rtt_ms */
-	uint32_t	probe_rtt_done_stamp;   	/* end time for BBR_PROBE_RTT mode */
-	uint32_t	rtt_cnt;	    			/* count of packet-timed rounds elapsed */
-	uint32_t    next_rtt_delivered; 		/* scb->tx.delivered at end of round */
-	bbr_mode 	mode,		     /* current bbr_mode in state machine */
-		prev_ca_state:3,     /* CA state on previous ACK */
-		packet_conservation:1,  /* use packet conservation? */
-		restore_cwnd:1,	     /* decided to revert cwnd to old value */
-		round_start:1,	     /* start of packet-timed tx->ack round? */
-		tso_segs_goal:7,     /* segments we want in each skb we send */
-		idle_restart:1,	     /* restarting after idle? */
-		probe_rtt_round_done:1,  /* a BBR_PROBE_RTT round at 4 pkts? */
-		unused:5,
-		lt_is_sampling:1,    /* taking long-term ("LT") samples now? */
-		lt_rtt_cnt:7,	     /* round trips in long-term interval */
-		lt_use_bw:1;	     /* use lt_bw as our bw estimate? */
-	uint32_t	lt_bw;		     /* LT est delivery rate in pkts/uS << 24 */
-	uint32_t	lt_last_delivered;   /* LT intvl start: tp->delivered */
-	uint32_t	lt_last_stamp;	     /* LT intvl start: tp->delivered_mstamp */
-	uint32_t	lt_last_lost;	     /* LT intvl start: tp->lost */
-	uint32_t	pacing_gain:10,	/* current gain for setting pacing rate */
-		cwnd_gain:10,	/* current gain for setting cwnd */
-		full_bw_cnt:3,	/* number of rounds without large bw gains */
-		cycle_idx:3,	/* current index in pacing_gain cycle array */
-		unused_b:6;
-	uint32_t	prior_cwnd;	/* prior cwnd upon entering loss recovery */
-	uint32_t	full_bw;	/* recent bw, to estimate if pipe is full */
+	float pacing_rate; 		/* The current pacing rate for a BBR flow, 
+							controls inter-packet spacing.*/
+	uint32_t send_quantum; 	/* The maximum size of a data aggregate 
+							scheduled and transmitted together.*/
+	uint16_t cwnd; 			/* the sender's congestion window */
+	uint32_t btl_bw;			/* BBR's current estimate of btlBW */
+
 } bbr_t;
+
 
 /* function called on ACK (pg 23 of notes) */
 void on_ack(bbr_t* bbr);
@@ -106,7 +97,7 @@ void on_ack(bbr_t* bbr);
 void bbr_init(bbr_t* bbr); 
 
 /* update the BW max value */
-void bbr_update_bw(bbr_t* bbr, long rtt, int bytes); 
+void bbr_update_bw(bbr_t* bbr, long rtt, int seg_len); 
 
 /* update the RTT min value */
 void bbr_update_rtt(bbr_t* bbr, long rtt); 
@@ -116,3 +107,34 @@ void bbr_main(bbr_t* bbr);
 
 
 #endif
+
+// old BBR Block
+// uint32_t	min_rtt_ms;	        		/* min RTT in min_rtt_win_sec window */
+// 	long		min_rtt_stamp;	        	/* timestamp of min_rtt_ms */
+// 	uint32_t	probe_rtt_done_stamp;   	/* end time for BBR_PROBE_RTT mode */
+// 	uint32_t	rtt_cnt;	    			/* count of packet-timed rounds elapsed */
+// 	uint32_t    next_rtt_delivered; 		/* scb->tx.delivered at end of round */
+// 	bbr_mode 	mode,		     /* current bbr_mode in state machine */
+// 	uint32_t	prev_ca_state:3,     /* CA state on previous ACK */
+// 		packet_conservation:1,  /* use packet conservation? */
+// 		restore_cwnd:1,	     /* decided to revert cwnd to old value */
+// 		round_start:1,	     /* start of packet-timed tx->ack round? */
+// 		tso_segs_goal:7,     /* segments we want in each skb we send */
+// 		idle_restart:1,	     /* restarting after idle? */
+// 		probe_rtt_round_done:1,  /* a BBR_PROBE_RTT round at 4 pkts? */
+// 		unused:5,
+// 		lt_is_sampling:1,     taking long-term ("LT") samples now? 
+// 		lt_rtt_cnt:7,	     /* round trips in long-term interval */
+// 		lt_use_bw:1;	     /* use lt_bw as our bw estimate? */
+// 	uint32_t	lt_bw;		     /* LT est delivery rate in pkts/uS << 24 */
+// 	uint32_t	lt_last_delivered;   /* LT intvl start: tp->delivered */
+// 	uint32_t	lt_last_stamp;	     /* LT intvl start: tp->delivered_mstamp */
+// 	uint32_t	lt_last_lost;	     /* LT intvl start: tp->lost */
+// 	uint32_t	pacing_gain,	/* current gain for setting pacing rate */
+// 		cwnd_gain,	/* current gain for setting cwnd */
+// 		full_bw_cnt,	/* number of rounds without large bw gains */
+// 		cycle_idx;	/* current index in pacing_gain cycle array */
+// 	uint32_t	prior_cwnd;	/* prior cwnd upon entering loss recovery */
+// 	uint32_t	full_bw;	/* recent bw, to estimate if pipe is full, 
+// 							take 90% of this value */
+// 	uint32_t 	data_sent_in_phase 			/* data sent during this mode 

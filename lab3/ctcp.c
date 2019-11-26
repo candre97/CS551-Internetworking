@@ -236,14 +236,6 @@ void ctcp_read(ctcp_state_t *state) {
 }
 
 bool is_valid_segment(ctcp_state_t *state, ctcp_segment_t *segment, size_t len) {
-  /* checksum, length, checkers */
-/*  omitted-- causing me problems if(len < segment->len) {
-#ifdef DEBUG
-    fprintf(stderr, "truncated or damaged segment\n"); 
-#endif
-    free(segment);
-    return false; 
-  }*/
 
   uint16_t recv_cksum = segment->cksum;
   segment->cksum = 0;
