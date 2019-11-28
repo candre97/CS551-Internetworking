@@ -30,13 +30,25 @@ static uint32_t bbr_probe_rtt_mode_ms = 200;	 /* min ms at cwnd=4 in BBR_PROBE_R
 static int bbr_min_tso_rate	= 1200000;  /* skip TSO below here (bits/sec) */
 
 
-/* gain values as floats */
-int gain_cycle_len = 8;
+/* Constants go here! */
+/*A constant specifying the length of the BBR.BtlBw 
+max filter window for BBR.BtlBwFilter, 
+BtlBwFilterLen is 10 packet-timed round trips.*/
+uint16_t BtlBwFilterLen = 10;
+/* length of the RTProp min filter window */
+long RTpropFilterLen = 10*1000; 	/* 10 second in ms*/
+const int BBRGainCycleLen = 8;		/* the number of phases in the BBR ProbeBW gain cycle: 8.*/
+const int BBRMinPipeCwnd = 4;		/* min cwnd that BBR will use */
+long ProbeRTTInterval = 10*1000;	/* minimum time interval b/t ProbeRTT states */
+long ProbeRTTDuration = 200;		/* A constant specifying the minimum duration for which 
+									ProbeRTT state holds inflight to BBRMinPipeCwnd or 
+									fewer packets: 200 ms.*/
+uint32_t SMSS = 1500;				/* The Sender Maximum Segment Size. */
 
-static float startip_pacing_gain = 2.88672;
-static float drain_pacing_gain = 1/2.88672;
+/* Gain constants */
+static float BBRHighGain = 2.89; /* (2/ln(2) ~= 2.89) */
+static float drain_pacing_gain = 1/2.89;
 float pacing_gain_cycle[] = {5/4, 3/4, 1, 1, 1, 1, 1, 1};
-
 
 
 /* We use a high_gain value chosen to allow a smoothly increasing pacing rate
@@ -51,12 +63,6 @@ static int bbr_pacing_gain[] = { BBR_UNIT * 5 / 4, BBR_UNIT * 3 / 4,
 				 BBR_UNIT, BBR_UNIT, BBR_UNIT,
 				 BBR_UNIT, BBR_UNIT, BBR_UNIT };
 static uint32_t bbr_cycle_rand = 7;  /* randomize gain cycling phase over N phases */
-
-/* Try to keep at least this many packets in flight, if things go smoothly. For
- * smooth functioning, a sliding window protocol ACKing every other packet
- * needs at least 4 packets in flight.
- */
-static uint32_t bbr_cwnd_min_target	= 4;
 
 /* INET_DIAG_BBRINFO */
 typedef struct {
@@ -80,12 +86,42 @@ typedef enum {
 https://tools.ietf.org/id/draft-cardwell-iccrg-bbr-congestion-control-00.html
 */
 typedef struct {
-	float pacing_rate; 		/* The current pacing rate for a BBR flow, 
-							controls inter-packet spacing.*/
-	uint32_t send_quantum; 	/* The maximum size of a data aggregate 
-							scheduled and transmitted together.*/
-	uint16_t cwnd; 			/* the sender's congestion window */
-	uint32_t btl_bw;			/* BBR's current estimate of btlBW */
+	bbr_mode 	mode; 
+	float 		pacing_rate; 	/* The current pacing rate for a BBR flow, 
+								controls inter-packet spacing.*/
+	uint32_t 	send_quantum; 	/* The maximum size of a data aggregate 
+								scheduled and transmitted together.*/
+	uint16_t 	cwnd; 			/* the sender's congestion window */
+	uint32_t 	btl_bw;			/* BBR's current estimate of btlBW */
+	uint32_t	btl_bw_filter_val;	/* max filter used to estimate btl_bw */
+	long 		btl_bw_filter_time;	
+	uint32_t 	full_bw; 
+	uint16_t 	full_bw_count; 
+	long 		rt_prop; 		/* BBR's estimated two-way round-trip propagation
+								 delay of the path, estimated from the windowed minimum
+								 recent round-trip delay sample.*/
+	long 		rt_prop_stamp;	/* time of when current rt_prop was recorded */
+	bool		rt_prop_expired;/* whether the BBR.RTprop has expired and is due 
+								for a refresh with an application idle period or a 
+								transition into ProbeRTT state*/
+	float 		pacing_gain;	/* gain factor used to scale BBR.BtlBw to produce BBR.pacing_rate.*/
+	float 		cwnd_gain; 		/* The dynamic gain factor used to scale the estimated 
+								BDP to produce a congestion window (cwnd). */
+	uint16_t 	initial_cwnd; 	/* initial value of cwnd given at initialization */
+	uint16_t 	target_cwnd;	/* cwnd that you want to go towards */
+	bool 		filled_pipe;	/* BBR's estimate, whether it has ever filled the pipe */
+	uint16_t	round_count;	/* count of packet times round trips */
+	bool 		round_start; 	/*A boolean that BBR sets to true once per packet-timed 
+								round trip, on ACKs that advance BBR.round_count.*/
+	uint32_t	next_round_delivered;/* packet.delivered value denoting the end of a 
+								packet-timed round trip.*/
+	uint32_t	delivered;		/* number of packets delivered by BBR */
+	bool 		is_app_limited; /* bool to track if you are app limited */
+	bool 		pacing_rate_init;/* to track whether the pacing rate has been initialized */
+	bool 		packet_conservation; /* whether youre in packet conservation mode */
+	uint16_t 	probe_rtt_done_stamp; /* stamp of when we are probing for RTT */
+	bool 		probe_rtt_round_done; /* whether we are done with Probe RTT */
+	bool 		idle_restart; 
 
 } bbr_t;
 

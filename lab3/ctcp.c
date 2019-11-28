@@ -373,6 +373,8 @@ void ctcp_receive(ctcp_state_t *state, ctcp_segment_t *segment, size_t len) {
         else { /* woohoo! got some ACK's */
           ll_node_t* node_next = node->next;
           ll_remove(state->unackd_segments, node);
+          /* can get some info about sent time here for BBR */
+          
           node = node_next;
           free(w_seg);
           free(segment); 
