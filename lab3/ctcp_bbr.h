@@ -8,6 +8,7 @@
  *****************************************************************************/
 #include <stdint.h>
 #include "ctcp_utils.h"
+#include "ctcp.h"
 
 #ifndef CTCP_BBR_H
 #define CTCP_BBR_H
@@ -122,25 +123,75 @@ typedef struct {
 	uint16_t 	probe_rtt_done_stamp; /* stamp of when we are probing for RTT */
 	bool 		probe_rtt_round_done; /* whether we are done with Probe RTT */
 	bool 		idle_restart; 
-
+	uint16_t 	cycle_index; 
 } bbr_t;
 
+void BBRUpdateModelAndState(bbr_t* bbr, uint32_t delivery_rate);
+void BBRUpdateBtlBw(bbr_t* bbr, uint32_t delivery_rate);
+void BBRInitPacingRate(bbr_t* bbr, uint16_t InitialCwnd);
+void BBRSetPacingRate(bbr_t* bbr, ctcp_segment_t* segment);
+void BBRModulateCwndForProbeRTT(bbr_t* bbr);
+uint16_t BBRSaveCwnd(bbr_t* bbr);
 
-/* function called on ACK (pg 23 of notes) */
-void on_ack(bbr_t* bbr);
+void BBRUpdateOnRTO(bbr_t* bbr);
+/* 
+TODO: implement these functions: 
+void uponEnteringFastRecovery()
+  BBR.prior_cwnd = BBRSaveCwnd()
+  cwnd = packets_in_flight + max(packets_delivered, 1)
+  BBR.packet_conservation = true
 
+void onACKinFastRecovery()
+BBRModulateCwndForRecovery():
+    if (packets_lost > 0)
+      cwnd = max(cwnd - packets_lost, 1)
+    if (BBR.packet_conservation)
+      cwnd = max(cwnd, packets_in_flight + packets_delivered)
+
+After one trip in fast recovery: 
+  BBR.packet_conservation = false
+
+After exiting fast recovery:
+	BBR.packet_conservation = false
+	BBRRestoreCwnd()
+*/
+
+void BBRSetSendQuantum(bbr_t* bbr);
+void BBRSetCwnd(bbr_t* bbr, uint16_t ackd_packets);
+uint16_t BBRInFlight(bbr_t* bbr, float gain);
+void BBRUpdateTargetCwnd(bbr_t* bbr);
+void BBRUpdateControlParameters(bbr_t* bbr, ctcp_segment_t* segment, uint16_t ackd_packets);
+void BBRUpdateRound(bbr_t* bbr, ctcp_state_t* state, ctcp_segment_t* segment);
+/* function called on received ACK */
+void BBRUpdateOnACK(bbr_t* bbr, ctcp_state_t* state, 
+	ctcp_segment_t* segment, uint16_t ackd_packets);
+void BBRInitRoundCounting(bbr_t* bbr);
 /* initialize a bbr struct with initial variables */
-void bbr_init(bbr_t* bbr); 
+void bbr_init(bbr_t* bbr, uint16_t recv_window, ctcp_state_t* state);
+void BBRCheckFullPipe(bbr_t* bbr);
+void BBRCheckDrain(bbr_t* bbr, uint16_t packets_in_flight);
+// source: https://www.geeksforgeeks.org/generating-random-number-range-c/
+void random_int_in_range(int lower, int upper);
+void BBREnterProbeBW(bbr_t* bbr);
+void BBRCheckCyclePhase(bbr_t* bbr);
+bool BBRIsNextCyclePhase(bbr_t* bbr, uint32_t prior_inflight, uint32_t packets_lost);
+void BBRAdvanceCyclePhase(bbr_t* bbr);
 
+void BBREnterDrain(bbr_t* bbr);
+void BBRInitFullPipe(bbr_t* bbr);
+void BBREnterStartup(bbr_t* bbr);
 /* update the BW max value */
-void bbr_update_bw(bbr_t* bbr, long rtt, int seg_len); 
-
+void BBUpdateBtlBw(bbr_t* bbr, uint32_t delivery_rate, 
+	ctcp_state_t* state, ctcp_segment_t* segment);
 /* update the RTT min value */
-void bbr_update_rtt(bbr_t* bbr, long rtt); 
-
-/* handles top level cycling through all of the modes */
-void bbr_main(bbr_t* bbr); 
-
+void BBRUpdateRTprop(bbr_t* bbr, long rtt);
+void BBRSetPacingRateWithGain(float pacing_gain);
+void BBRHandleRestartFromIdle(bbr_t* bbr, uint32_t packets_in_flight);
+void BBRCheckProbeRTT(bbr_t* bbr, uint32_t packets_in_flight);
+void BBREnterProbeRTT(bbr_t* bbr);
+void BBRHandleProbeRTT(bbr_t* bbr, uint32_t packets_in_flight);
+void BBRExitProbeRTT(bbr_t* bbr);
+uint32_t BBROnTransmit(bbr_t* bbr);
 
 #endif
 

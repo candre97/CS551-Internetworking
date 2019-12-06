@@ -2,9 +2,9 @@
 
 #include "ctcp_bbr.h"
 
-void BBRUpdateModelAndState(bbr_t* bbr) {
+void BBRUpdateModelAndState(bbr_t* bbr, uint32_t delivery_rate) {
 	/* calculate delivery rate */
-	BBRUpdateBtlBw(bbr_t* bbr);
+	BBRUpdateBtlBw(bbr_t* bbr, delivery_rate);
     BBRCheckCyclePhase(bbr_t* bbr);
     BBRCheckFullPipe(bbr_t* bbr);
     BBRCheckDrain(bbr_t* bbr);
@@ -12,6 +12,12 @@ void BBRUpdateModelAndState(bbr_t* bbr) {
     BBRCheckProbeRTT(bbr_t* bbr);
 }
 
+void BBRUpdateBtlBw(bbr_t* bbr, uint32_t delivery_rate) {
+	BBRUpdateRound(bbr);
+	if (bbr->delivery_rate >= bbr->btl_bw || !bbr->is_app_limited) {
+	    bbr->BtlBw = max(delivery_rate, bbr->btl_bw);
+	}
+}
 
 void BBRInitPacingRate(bbr_t* bbr, uint16_t InitialCwnd) {
 	int nominal_bandwidth = InitialCwnd / (SRTT ? SRTT : 1);
@@ -40,17 +46,19 @@ void BBRSetPacingRate(bbr_t* bbr, ctcp_segment_t* segment) {
 }
 
 void BBRModulateCwndForProbeRTT(bbr_t* bbr) {
-	if (BBR.state == ProbeRTT) {
+	if (bbr->mode == BBR_Probe_RTT) {
     	bbr->cwnd = min(bbr->cwnd, 4);
 	}
 }
 
 
 uint16_t BBRSaveCwnd(bbr_t* bbr) {
-	if (/*not InLossRecovery()*/ bbr->bbr_mode != BBR_PROBE_RTT)
-      return bbr->cwnd;
-    else
-      return max(BBR.prior_cwnd, cwnd);
+	if (/*not InLossRecovery()*/ bbr->bbr_mode != BBR_PROBE_RTT) {
+    	return bbr->cwnd;
+	}
+    else {
+    	return max(bbr->prior_cwnd, cwnd);
+    }
 }
 
 void BBRUpdateOnRTO(bbr_t* bbr) {
@@ -59,7 +67,7 @@ void BBRUpdateOnRTO(bbr_t* bbr) {
 	bbr->packet_conservation = true; 
 }
 
-/* 
+/* BBR.
 TODO: implement these functions: 
 void uponEnteringFastRecovery()
   BBR.prior_cwnd = BBRSaveCwnd()
@@ -219,10 +227,10 @@ void random_int_in_range(int lower, int upper)
 } 
 
 void BBREnterProbeBW(bbr_t* bbr) {
-    bbr.state = BBR_PROBE_BW; 
-    bbr.pacing_gain = 1;
-    bbr.cwnd_gain = 2;
-    bbr.cycle_index = BBRGainCycleLen - 1 - random_int_in_range(0,6)
+    bbr->state = BBR_PROBE_BW; 
+    bbr->pacing_gain = 1;
+    bbr->cwnd_gain = 2;
+    bbr->cycle_index = BBRGainCycleLen - 1 - random_int_in_range(0,6)
     BBRAdvanceCyclePhase(bbr);
 }
 
@@ -236,7 +244,7 @@ bool BBRIsNextCyclePhase(bbr_t* bbr, uint32_t prior_inflight, uint32_t packets_l
     bool is_full_length = (current_time() - bbr->cycle_stamp) > bbr->rt_prop;
     if(bbr->pacing_gain == 1)
     	return is_full_length; 
-    if(BBR.pacing_gain > 1) {
+    if(bbr->pacing_gain > 1) {
     	return (is_full_length && 
     	((packets_lost > 0) || prior_inflight >= BBRInFlight(bbr->pacing_gain)));
     }
@@ -274,11 +282,7 @@ void BBUpdateBtlBw(bbr_t* bbr, uint32_t delivery_rate,
 	// bbr->rtt_cnt++;
 	BBRUpdateRound(bbr, ctcp_state_t* state, ctcp_segment_t* segment); 
 	if(delivery_rate >= bbr->btl_bw || !bbr->is_app_limited) {
-		bbr->btl_bw = update_windowed_max_filter(
-                      filter=BBR.BtlBwFilter,
-                      value=delivery_rate,
-                      time=BBR.round_count,
-                      window_length=BtlBwFilterLen);
+		bbr->btl_bw = max(delivery_rate, bbr->btl_bw); 
 	}
 }
 
@@ -310,7 +314,7 @@ void BBRSetPacingRateWithGain(float pacing_gain) {
 void BBRHandleRestartFromIdle(bbr_t* bbr, uint32_t packets_in_flight) {
     if(packets_in_flight == 0 && bbr->is_app_limited) {
     	bbr->idle_restart = true;
-    	if(BBR.state == BBR_PROBE_BW) {
+    	if(bbr->mode == BBR_PROBE_BW) {
     		BBRSetPacingRateWithGain(1);
     	}
     }
@@ -323,107 +327,55 @@ void BBRHandleRestartFromIdle(bbr_t* bbr, uint32_t packets_in_flight) {
 3. implement BBR changes in ctcp.c
 */
 
-void BBRCheckProbeRTT() {
-    if (BBR.state != ProbeRTT and
-        BBR.rtprop_expired and
-        not BBR.idle_restart)
-      BBREnterProbeRTT()
-      BBRSaveCwnd()
-      BBR.probe_rtt_done_stamp = 0
-    if (BBR.state == ProbeRTT)
-      BBRHandleProbeRTT()
-    BBR.idle_restart = false
+void BBRCheckProbeRTT(bbr_t* bbr, uint32_t packets_in_flight) {
+    if (bbr->mode != BBR_PROBE_BW && bbr->rtprop_expired && !bbr->idle_restart) {
+		BBREnterProbeRTT(bbr);
+		BBRSaveCwnd(bbr); 
+		bbr->probe_rtt_done_stamp = 0;
+  	}
+    if (bbr->mode == ProbeRTT) {
+      BBRHandleProbeRTT(bbr, packets_in_flight); 
+    }
+    bbr->idle_restart = false;
 }
 
-void BBREnterProbeRTT() {
-    BBR.state = ProbeRTT
-    BBR.pacing_gain = 1
-    BBR.cwnd_gain = 1
+void BBREnterProbeRTT(bbr_t* bbr) {
+    bbr->mode = BBR_PROBE_BW;
+    bbr->pacing_gain = 1;
+    bbr->cwnd_gain = 1;
 }
 
-void BBRHandleProbeRTT() {
+void BBRHandleProbeRTT(bbr_t* bbr, uint32_t packets_in_flight) {
     /* Ignore low rate samples during ProbeRTT: */
-    C.app_limited =
-      (BW.delivered + packets_in_flight) ? : 1
-    if (BBR.probe_rtt_done_stamp == 0 and
-        packets_in_flight <= BBRMinPipeCwnd)
-      BBR.probe_rtt_done_stamp =
-        Now() + ProbeRTTDuration
-      BBR.probe_rtt_round_done = false
-      BBR.next_round_delivered = BBR.delivered
-    else if (BBR.probe_rtt_done_stamp != 0)
-      if (BBR.round_start)
-        BBR.probe_rtt_round_done = true
-      if (BBR.probe_rtt_round_done and
-          Now() > BBR.probe_rtt_done_stamp)
-        BBR.rtprop_stamp = Now()
-        BBRRestoreCwnd()
-        BBRExitProbeRTT()
+    bbr->is_app_limited = (bbr->delivered + packets_in_flight) ? : 1; 
+    if (bbr->probe_rtt_done_stamp == 0 && packets_in_flight <= BBRMinPipeCwnd) {
+		bbr->probe_rtt_done_stamp = current_time() + ProbeRTTDuration; 
+		bbr->probe_rtt_round_done = false; 
+		bbr->next_round_delivered = bbr->delivered;
+  	}
+    else if (bbr->probe_rtt_done_stamp != 0) {
+		if (bbr->round_start) {
+			bbr->probe_rtt_round_done = true;
+		}
+		if (bbr->probe_rtt_round_done && current_time() > bbr->probe_rtt_done_stamp) {
+			bbr->rtprop_stamp = current_time();
+			BBRRestoreCwnd(bbr);
+			BBRExitProbeRTT(bbr);
+		}
+    }
 }
 
-void BBRExitProbeRTT() {
-    if (BBR.filled_pipe)
-      BBREnterProbeBW()
-    else
-      BBREnterStartup()
+void BBRExitProbeRTT(bbr_t* bbr) {
+    if (bbr->filled_pipe) {
+      BBREnterProbeBW(bbr);
+    }
+    else {
+      BBREnterStartup(bbr); 
+    }
 }
-
 
 uint32_t BBROnTransmit(bbr_t* bbr) {
 	BBRHandleRestartFromIdle(bbr);
 	return bbr->delivered;
 }
 
-
-
-
-/* 
-	Questions for office hours
-	1. can we overview BBR quickly just to make sure i know 
-	everything ill need to implement
-	2. bbr_t struct -- what is going in it, am i set up well?
-	3. where is the appropriate spot to cycle bbr_mode?
-*/
-
-
-	// switch(bbr->mode) {
-	// 	case BBR_STARTUP: /* ramp up sending rate rapidly to fill pipe */
-
-	// 		if(current_time() - bbr->min_rtt_stamp > 10000) {
-	// 			bbr->mode = BBR_PROBE_RTT;
-	// 			bbr->data_sent_in_phase = 0;
-	// 			return;
-	// 		}
-	// 		else if(/* BW does not increase */) {
-	// 			bbr->mode = BBR_DRAIN;
-	// 			bbr->data_sent_in_phase = 0;
-	// 			return;
-	// 		}
-
-	// 		break;
-	// 	case BBR_DRAIN:	/* drain any queue created during startup */
-
-	// 		if(current_time() - bbr->min_rtt_stamp > 10000) {
-	// 			bbr->mode = BBR_PROBE_RTT;
-	// 			bbr->data_sent_in_phase = 0;
-	// 			return;
-	// 		}
-	// 		else if(/* inflight <= BDP */) {
-	// 			bbr->mode = BBR_PROBE_BW; 
-	// 			bbr->data_sent_in_phase = 0;
-	// 			return; 
-	// 		}
-	// 		break;
-	// 	case BBR_PROBE_BW:	/* discover, share bw: pace around estimated bw */
-	// 		if(current_time() - bbr->min_rtt_stamp > 10000) {
-	// 			bbr->mode = BBR_PROBE_RTT;
-	// 			bbr->data_sent_in_phase = 0;
-	// 			return;
-	// 		}
-	// 		break;
-	// 	case BBR_PROBE_RTT: /* cut cwnd to min to probe min_rtt */
-			
-	// 		if(bbr->)
-
-	// 		break;
-	// }
