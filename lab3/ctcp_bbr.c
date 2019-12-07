@@ -2,33 +2,27 @@
 
 #include "ctcp_bbr.h"
 
-void bbr_init(bbr_t* bbr) {
+/* Source: https://stackoverflow.com/questions/3437404/min-and-max-in-c */
+#define max(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+
+void bbr_init(bbr_t* bbr, uint16_t in_cwnd) {
 
 	/* set the variables to initial state */
-	bbr->btl_bw_filter_val = 0;
-	bbr->btl_bw_filter_time = 0;
-	bbr->rt_prop = -1;
-	bbr->rtprop_stamp = current_time();
-	bbr->probe_rtt_done_stamp = 0;
-	bbr->probe_rtt_round_done = false;
-	bbr->packet_conservation = false;
-	bbr->prior_cwnd = 0;
-	bbr->idle_restart = false;
-	bbr->initial_cwnd = recv_window;
-	if(bbr->initial_cwnd < 4) {
-		bbr->initial_cwnd = 4;
-	}
-	bbr->cwnd = bbr->initial_cwnd;
-
+	bbr->cwnd = max(in_cwnd,4); 
+	bbr->btl_bw = 0; 
+	bbr->full_bw = 0;
+	bbr->rt_prop = 200; 
+	bbr->rt_prop_stamp = current_time();
+	bbr->rt_prop_expired = false;
+	bbr->filled_pipe = false;
+	bbr->delivered_in_round = 0;
+	bbr->cycle_index = (rand() % (7 - 2 + 1)) + 2; 
 	bbr->rtt_cnt = 0;
-	bbr->mode = BBR_STARTUP;
-	bbr->min_rtt_win_sec = 10;
-	bbr->rtt_m_win = 10000;
-	bbr->btlbw = 1440;
-	bbr->current_pacing_gain = bbr_pacing_gain[0];
-	bbr->next_packet_send_time = 0;
-	bbr->rtt_prop = 200;
-
+	bbr->rtts_in_mode = 0;
+	
 	bbr_enter_startup(bbr);
 }
 
@@ -129,6 +123,11 @@ void bbr_update_btl_bw(bbr_t* bbr, long rtt, uint32_t seg_len) {
 	bbr->full_bw = max(bbr->btl_bw, bbr->full_bw);
 }
 
+void bbr_next_send_time(bbr_t* bbr, uint32_t seg_len) {
+	long time_to_wait = (long)(seg_len/(bbr->pacing_gain * bbr->btl_bw)); 
+	bbr->next_packet_send_time = current_time() + time_to_wait; 
+}
+
 
 void bbr_on_ack(bbr_t* bbr, long rtt, uint32_t seg_len) {
 
@@ -138,6 +137,7 @@ void bbr_on_ack(bbr_t* bbr, long rtt, uint32_t seg_len) {
 	bbr_check_probe_rtt(bbr); 
 	bbr_check_full_pipe(bbr); 
 	bbr_set_cwnd(bbr);
+	bbr_next_send_time(bbr, seg_len); 
 	
 	switch(bbr->mode) {
 		case BBR_STARTUP:
@@ -149,7 +149,7 @@ void bbr_on_ack(bbr_t* bbr, long rtt, uint32_t seg_len) {
 		case BBR_DRAIN:
 			bbr->rtts_in_mode++;
 			/* Drain the queues for 5 RTT's */
-			if(rtts_in_mode > 5) {
+			if(bbr->rtts_in_mode > 5) {
 				bbr_enter_probe_bw(bbr); 
 			}
 			break; 

@@ -54,7 +54,8 @@ struct ctcp_state {
   bool fin_sent;          /* if you have sent a packet with FIN flag */
   bool fin_recd;          /* if you have received a packet with FIN flag */
   bool recv_ack;          /* if your last sent packet was acked */
-  
+  bbr_t* bbr;              /* the BBR variables for the state */
+  FILE* bdp_dot_txt;       /* points to bdp.txt */
 };
 
 /**
@@ -103,6 +104,10 @@ ctcp_state_t *ctcp_init(conn_t *conn, ctcp_config_t *cfg) {
   state_list = state;
 
   state->conn = conn;
+  bbr_t* in_bbr = (bbr_t* ) malloc(sizeof(bbr_t)); 
+  bbr_init(in_bbr, state->config.send_window); 
+
+  state->bdp_dot_txt = fopen("bdp.txt", "w"); 
 
   free(cfg);
 
@@ -196,6 +201,8 @@ void ctcp_read(ctcp_state_t *state) {
     memcpy(seg->data, buffer, num_bytes);
   }
 
+  state->config.send_window = state->bbr->cwnd; 
+
   /* set segment fields */
   seg->len = htons(seg_len); 
   seg->seqno = htonl(state->seq_num_next);
@@ -204,6 +211,15 @@ void ctcp_read(ctcp_state_t *state) {
   seg->window = htons(state->config.recv_window);
   seg->cksum = cksum(seg, seg_len);
   free(buffer);
+
+
+
+  while(current_time() < state->bbr->next_packet_send_time) {
+    // wait here until we can send..
+    /* can make another buffer to hold packets in a send queue
+        to optimize design and not block thread here. 
+     */
+  }
 
   int bytes_sent = conn_send(state->conn, seg, seg_len); 
   if(bytes_sent < 0) {
@@ -274,6 +290,7 @@ void send_ack_c(ctcp_state_t* state) {
   free(seg); 
   return; 
 }
+
 
 void ctcp_receive(ctcp_state_t *state, ctcp_segment_t *segment, size_t len) {
 
@@ -371,10 +388,14 @@ void ctcp_receive(ctcp_state_t *state, ctcp_segment_t *segment, size_t len) {
           break;
         }
         else { /* woohoo! got some ACK's */
+          long seg_rtt = current_time() - w_seg->time_last_sent; 
+          bbr_on_ack(state->bbr, seg_rtt, ntohs(segment->len)); 
+          fprintf(state->bdp_dot_txt, "%ld,%ld\n", current_time(), state->bbr->btl_bw * seg_rtt);
+          fflush(state->bdp_dot_txt); 
           ll_node_t* node_next = node->next;
           ll_remove(state->unackd_segments, node);
           /* can get some info about sent time here for BBR */
-          
+
           node = node_next;
           free(w_seg);
           free(segment); 

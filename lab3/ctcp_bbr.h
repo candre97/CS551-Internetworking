@@ -6,12 +6,14 @@
  * ctcp_bbr.c.
  *
  *****************************************************************************/
-#include <stdint.h>
-#include "ctcp_utils.h"
-#include "ctcp.h"
+
 
 #ifndef CTCP_BBR_H
 #define CTCP_BBR_H
+
+#include <stdint.h>
+#include "ctcp_utils.h"
+#include "ctcp.h"
 
 #define CYCLE_LEN	8	/* number of phases in a pacing gain cycle */
 /* Scale factor for rate in pkt/uSec unit to avoid truncation in bandwidth
@@ -25,26 +27,7 @@
 #define BBR_SCALE 8	/* scaling factor for fractions in BBR (e.g. gains) */
 #define BBR_UNIT (1 << BBR_SCALE)
 
-static int bbr_bw_rtts	= CYCLE_LEN + 2; /* win len of bw filter (in rounds) */
-static uint32_t bbr_min_rtt_win_sec = 10;	 /* min RTT filter window (in sec) */
-static uint32_t bbr_probe_rtt_mode_ms = 200;	 /* min ms at cwnd=4 in BBR_PROBE_RTT */
-static int bbr_min_tso_rate	= 1200000;  /* skip TSO below here (bits/sec) */
 
-
-/* Constants go here! */
-/*A constant specifying the length of the BBR.BtlBw 
-max filter window for BBR.BtlBwFilter, 
-BtlBwFilterLen is 10 packet-timed round trips.*/
-uint16_t BtlBwFilterLen = 10;
-/* length of the RTProp min filter window */
-long RTpropFilterLen = 10*1000; 	/* 10 second in ms*/
-const int BBRGainCycleLen = 8;		/* the number of phases in the BBR ProbeBW gain cycle: 8.*/
-const int BBRMinPipeCwnd = 4;		/* min cwnd that BBR will use */
-long ProbeRTTInterval = 10*1000;	/* minimum time interval b/t ProbeRTT states */
-long ProbeRTTDuration = 200;		/* A constant specifying the minimum duration for which 
-									ProbeRTT state holds inflight to BBRMinPipeCwnd or 
-									fewer packets: 200 ms.*/
-uint32_t SMSS = 1500;				/* The Sender Maximum Segment Size. */
 
 /* Gain constants
 static float BBRHighGain = 2.89; 
@@ -56,11 +39,11 @@ float pacing_gain_cycle[] = {5/4, 3/4, 1, 1, 1, 1, 1, 1};*/
  * that will double each RTT and send the same number of packets per RTT that
  * an un-paced, slow-starting Reno or CUBIC flow would.
  */
-static int bbr_high_gain  = BBR_UNIT * 2885 / 1000 + 1;	/* 2/ln(2) */
-static int bbr_drain_gain = BBR_UNIT * 1000 / 2885;	/* 1/high_gain */
-static int bbr_cwnd_gain  = BBR_UNIT * 2;	/* gain for steady-state cwnd */
+int bbr_high_gain  = BBR_UNIT * 2885 / 1000 + 1;	/* 2/ln(2) */
+int bbr_drain_gain = BBR_UNIT * 1000 / 2885;	/* 1/high_gain */
+int bbr_cwnd_gain  = BBR_UNIT * 2;	/* gain for steady-state cwnd */
 /* The pacing_gain values for the PROBE_BW gain cycle: */
-static int bbr_pacing_gain[] = { BBR_UNIT * 5 / 4, BBR_UNIT * 3 / 4,
+int bbr_pacing_gain[] = { BBR_UNIT * 5 / 4, BBR_UNIT * 3 / 4,
 				 BBR_UNIT, BBR_UNIT, BBR_UNIT,
 				 BBR_UNIT, BBR_UNIT, BBR_UNIT };
 
@@ -106,18 +89,41 @@ typedef struct {
 								BDP to produce a congestion window (cwnd). */
 	bool 		filled_pipe;	/* BBR's estimate, whether it has ever filled the pipe */
 	uint32_t	delivered_in_round;		/* number of packets delivered by BBR in current round */
-	long	 	probe_rtt_done_stamp; /* stamp of when we are done probing for RTT */
-	bool 		probe_rtt_round_done; /* whether we are done with Probe RTT */
-	bool 		idle_restart; 
-	uint16_t	full_bw_cnt; 	/* how many times there is no BW improvement */
+	//long	 	probe_rtt_done_stamp; /* stamp of when we are done probing for RTT */
+	//bool 		probe_rtt_round_done; /* whether we are done with Probe RTT */
+	//bool 		idle_restart; 
+	uint8_t		full_bw_cnt; 	/* how many times there is no BW improvement */
 	uint8_t 	cycle_index; 	/* pacing gain index for probe_bw*/
-	uint32_t	rtt_count; 		/* need to update BW estimate every 10 */
-	uint8_t		rtts_in_mode;  /* number of RTT's spent in the phase */
+	uint32_t	rtt_cnt; 		/* need to update BW estimate every 10 */
+	uint32_t	rtts_in_mode;  /* number of RTT's spent in the phase */
+	long 		next_packet_send_time; 
 } bbr_t;
 
-void bbr_init(bbr_t* bbr);
-void bbr_on_ack(bbr_t* bbr);
+void bbr_init(bbr_t* bbr, uint16_t in_cwnd);
+
+void bbr_enter_startup(bbr_t* bbr);
+
+void bbr_enter_drain(bbr_t* bbr);
+
+void bbr_enter_probe_bw(bbr_t* bbr);
+
+void bbr_cycle_gain_probe_bw(bbr_t* bbr);
+
+void bbr_check_probe_rtt(bbr_t* bbr);
+
+void bbr_enter_probe_rtt(bbr_t* bbr);
+
+void bbr_set_cwnd(bbr_t* bbr);
+
+void bbr_check_full_pipe(bbr_t* bbr);
+
 void bbr_update_rtt(bbr_t* bbr, long rtt);
-void bbr_update_btl_bw(bbr_t* bbr); 
+
+void bbr_update_btl_bw(bbr_t* bbr, long rtt, uint32_t seg_len);
+
+void bbr_next_send_time(bbr_t* bbr, uint32_t seg_len);
+
+void bbr_on_ack(bbr_t* bbr, long rtt, uint32_t seg_len);
+
 
 #endif
