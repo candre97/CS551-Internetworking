@@ -8,8 +8,9 @@
        __typeof__ (b) _b = (b); \
      _a > _b ? _a : _b; })
 
-void bbr_init(bbr_t* bbr, uint16_t in_cwnd) {
+bbr_t* bbr_init(uint16_t in_cwnd) {
 
+	bbr_t* bbr = malloc(sizeof(bbr_t)); 
 	/* set the variables to initial state */
 	bbr->cwnd = max(in_cwnd,4); 
 	bbr->btl_bw = 0; 
@@ -24,6 +25,7 @@ void bbr_init(bbr_t* bbr, uint16_t in_cwnd) {
 	bbr->rtts_in_mode = 0;
 	
 	bbr_enter_startup(bbr);
+	return bbr; 
 }
 
 void bbr_enter_startup(bbr_t* bbr) {
@@ -113,7 +115,7 @@ void bbr_update_rtt(bbr_t* bbr, long rtt) {
 }
 
 
-void bbr_update_btl_bw(bbr_t* bbr, long rtt, uint32_t seg_len) {
+void bbr_update_btl_bw(bbr_t* bbr, long rtt, int seg_len) {
 	if(rtt <= 0) {
 		fprintf(stderr, "RTT is negative or == 0\n"); 
 
@@ -123,13 +125,13 @@ void bbr_update_btl_bw(bbr_t* bbr, long rtt, uint32_t seg_len) {
 	bbr->full_bw = max(bbr->btl_bw, bbr->full_bw);
 }
 
-void bbr_next_send_time(bbr_t* bbr, uint32_t seg_len) {
+void bbr_next_send_time(bbr_t* bbr, int seg_len) {
 	long time_to_wait = (long)(seg_len/(bbr->pacing_gain * bbr->btl_bw)); 
 	bbr->next_packet_send_time = current_time() + time_to_wait; 
 }
 
 
-void bbr_on_ack(bbr_t* bbr, long rtt, uint32_t seg_len) {
+void bbr_on_ack(bbr_t* bbr, long rtt, int seg_len) {
 
 	bbr->rtt_cnt++;
 

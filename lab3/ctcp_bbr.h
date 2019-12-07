@@ -13,7 +13,7 @@
 
 #include <stdint.h>
 #include "ctcp_utils.h"
-#include "ctcp.h"
+
 
 #define CYCLE_LEN	8	/* number of phases in a pacing gain cycle */
 /* Scale factor for rate in pkt/uSec unit to avoid truncation in bandwidth
@@ -27,8 +27,6 @@
 #define BBR_SCALE 8	/* scaling factor for fractions in BBR (e.g. gains) */
 #define BBR_UNIT (1 << BBR_SCALE)
 
-
-
 /* Gain constants
 static float BBRHighGain = 2.89; 
 static float drain_pacing_gain = 1/2.89;
@@ -39,11 +37,11 @@ float pacing_gain_cycle[] = {5/4, 3/4, 1, 1, 1, 1, 1, 1};*/
  * that will double each RTT and send the same number of packets per RTT that
  * an un-paced, slow-starting Reno or CUBIC flow would.
  */
-int bbr_high_gain  = BBR_UNIT * 2885 / 1000 + 1;	/* 2/ln(2) */
-int bbr_drain_gain = BBR_UNIT * 1000 / 2885;	/* 1/high_gain */
-int bbr_cwnd_gain  = BBR_UNIT * 2;	/* gain for steady-state cwnd */
+static const int bbr_high_gain  = BBR_UNIT * 2885 / 1000 + 1;	/* 2/ln(2) */
+static const int bbr_drain_gain = BBR_UNIT * 1000 / 2885;	/* 1/high_gain */
+static const int bbr_cwnd_gain  = BBR_UNIT * 2;	/* gain for steady-state cwnd */
 /* The pacing_gain values for the PROBE_BW gain cycle: */
-int bbr_pacing_gain[] = { BBR_UNIT * 5 / 4, BBR_UNIT * 3 / 4,
+static const int bbr_pacing_gain[] = { BBR_UNIT * 5 / 4, BBR_UNIT * 3 / 4,
 				 BBR_UNIT, BBR_UNIT, BBR_UNIT,
 				 BBR_UNIT, BBR_UNIT, BBR_UNIT };
 
@@ -99,7 +97,7 @@ typedef struct {
 	long 		next_packet_send_time; 
 } bbr_t;
 
-void bbr_init(bbr_t* bbr, uint16_t in_cwnd);
+bbr_t* bbr_init(uint16_t in_cwnd);
 
 void bbr_enter_startup(bbr_t* bbr);
 
@@ -119,11 +117,10 @@ void bbr_check_full_pipe(bbr_t* bbr);
 
 void bbr_update_rtt(bbr_t* bbr, long rtt);
 
-void bbr_update_btl_bw(bbr_t* bbr, long rtt, uint32_t seg_len);
+void bbr_update_btl_bw(bbr_t* bbr, long rtt, int seg_len);
 
-void bbr_next_send_time(bbr_t* bbr, uint32_t seg_len);
+void bbr_next_send_time(bbr_t* bbr, int seg_len);
 
-void bbr_on_ack(bbr_t* bbr, long rtt, uint32_t seg_len);
-
+void bbr_on_ack(bbr_t* bbr, long rtt, int seg_len);
 
 #endif

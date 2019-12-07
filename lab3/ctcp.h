@@ -10,10 +10,8 @@
 #ifndef CTCP_H
 #define CTCP_H
 
-#include "ctcp_bbr.h"
-#include "ctcp_linked_list.h"
 #include "ctcp_sys.h"
-#include "ctcp_utils.h"
+#include "ctcp_bbr.h"
 
 /**
  * Maximum segment data size.
