@@ -18,6 +18,8 @@
 
 #define DEBUG 1
 
+int data_after_fin_cnt = 0;
+
 /* to keep track of the time sent and # of transmits */
 typedef struct {
   ctcp_segment_t* seg; 
@@ -171,6 +173,14 @@ void ctcp_read(ctcp_state_t *state) {
 #ifdef DEBUG
   fprintf(stderr, "ERROR, RX DATA AFTER SENT FIN\n"); 
 #endif
+    data_after_fin_cnt++;
+    if(data_after_fin_cnt > 5) {
+      //ctcp_destroy(state); 
+      state->fin_sent = false; 
+      state->fin_recd = false;
+      data_after_fin_cnt = 0;
+      fprintf(stderr, "Too much data after a fin, ignoring fin\n"); 
+    }
     return;
   }
   if(!state->recv_ack && (state->config.send_window == MAX_SEG_DATA_SIZE)) {
@@ -209,7 +219,7 @@ void ctcp_read(ctcp_state_t *state) {
   seg->cksum = cksum(seg, seg_len);
   free(buffer);
 
-  state->config.send_window = state->bbr->cwnd; 
+  //state->config.send_window = state->bbr->cwnd; 
   while(current_time() < state->bbr->next_packet_send_time) {
     // wait here until we can send..
      // can make another buffer to hold packets in a send queue
@@ -234,7 +244,7 @@ void ctcp_read(ctcp_state_t *state) {
   else if(num_bytes == 0) {
     if(flags&TH_FIN) {
       state->seq_num_next += 1;
-      state->fin_sent = 1;
+      state->fin_sent = true;
     }
   }
 
@@ -391,9 +401,22 @@ void ctcp_receive(ctcp_state_t *state, ctcp_segment_t *segment, size_t len) {
           break;
         }
         else { /* woohoo! got some ACK's */
-          long seg_rtt = current_time() - w_seg->time_last_sent; 
+          int seg_rtt = (int) current_time() - (int)w_seg->time_last_sent; 
+          if(seg_rtt <= 0) {
+            seg_rtt = 200;
+          }
+          if(seg_rtt > state->config.rt_timeout) { 
+            seg_rtt = state->config.rt_timeout;
+          }
+          int bdp = (int)state->bbr->btl_bw * 8 * seg_rtt;
+          fprintf(stderr, "RTT:%i\n", seg_rtt); 
           bbr_on_ack(state->bbr, seg_rtt, dat_len); 
-          fprintf(state->bdp_dot_txt, "%ld,%ld\n", current_time(), state->bbr->btl_bw * seg_rtt);
+          if(bdp < 20000) {
+            fprintf(state->bdp_dot_txt, "%ld,%i\n", current_time(), bdp);
+            fflush(state->bdp_dot_txt); 
+          }
+          state->config.send_window = state->bbr->cwnd; 
+
           ll_node_t* node_next = node->next;
           ll_remove(state->unackd_segments, node);
           node = node_next;

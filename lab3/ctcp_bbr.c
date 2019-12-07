@@ -12,7 +12,7 @@ bbr_t* bbr_init(uint16_t in_cwnd) {
 
 	bbr_t* bbr = malloc(sizeof(bbr_t)); 
 	/* set the variables to initial state */
-	bbr->cwnd = max(in_cwnd,4); 
+	bbr->cwnd = 4; 
 	bbr->btl_bw = 0; 
 	bbr->full_bw = 0;
 	bbr->rt_prop = 200; 
@@ -23,6 +23,7 @@ bbr_t* bbr_init(uint16_t in_cwnd) {
 	bbr->cycle_index = (rand() % (7 - 2 + 1)) + 2; 
 	bbr->rtt_cnt = 0;
 	bbr->rtts_in_mode = 0;
+	bbr->bbr_log = fopen("bbr_logger.txt", "w"); 
 	
 	bbr_enter_startup(bbr);
 	return bbr; 
@@ -82,7 +83,7 @@ void bbr_enter_probe_rtt(bbr_t* bbr) {
 }
 
 void bbr_set_cwnd(bbr_t* bbr) {
-	bbr->cwnd = bbr->rt_prop * bbr->btl_bw * bbr->pacing_gain; 
+	bbr->cwnd = bbr->rt_prop * bbr->btl_bw * bbr->pacing_gain * SMSS; 
 }
 
 void bbr_check_full_pipe(bbr_t* bbr) {
@@ -103,6 +104,9 @@ void bbr_check_full_pipe(bbr_t* bbr) {
 }
 
 void bbr_update_rtt(bbr_t* bbr, long rtt) {
+	
+	fprintf(stderr, "RTT:%ld\n", rtt);
+
 	if(rtt < bbr->rt_prop) {
 		bbr->rt_prop = rtt; 
 		bbr->rt_prop_stamp = current_time(); 
@@ -116,6 +120,7 @@ void bbr_update_rtt(bbr_t* bbr, long rtt) {
 
 
 void bbr_update_btl_bw(bbr_t* bbr, long rtt, int seg_len) {
+	
 	if(rtt <= 0) {
 		fprintf(stderr, "RTT is negative or == 0\n"); 
 
@@ -123,6 +128,7 @@ void bbr_update_btl_bw(bbr_t* bbr, long rtt, int seg_len) {
 	}
 	bbr->btl_bw = seg_len / rtt; 
 	bbr->full_bw = max(bbr->btl_bw, bbr->full_bw);
+	fprintf(stderr, "btl_bw:%ld\n", (long ) bbr->btl_bw);
 }
 
 void bbr_next_send_time(bbr_t* bbr, int seg_len) {
@@ -151,7 +157,7 @@ void bbr_on_ack(bbr_t* bbr, long rtt, int seg_len) {
 		case BBR_DRAIN:
 			bbr->rtts_in_mode++;
 			/* Drain the queues for 5 RTT's */
-			if(bbr->rtts_in_mode > 5) {
+			if(bbr->rtts_in_mode > 1) {
 				bbr_enter_probe_bw(bbr); 
 			}
 			break; 
@@ -164,7 +170,7 @@ void bbr_on_ack(bbr_t* bbr, long rtt, int seg_len) {
 			if(bbr->filled_pipe) {
 				bbr_enter_probe_bw(bbr); 
 			}
-			if(bbr->rtts_in_mode > 7) {
+			if(bbr->rtts_in_mode > 5) {
 				bbr_enter_startup(bbr); 
 			}
 			break;
@@ -175,5 +181,11 @@ void bbr_on_ack(bbr_t* bbr, long rtt, int seg_len) {
 	}
 
 	bbr_update_rtt(bbr, rtt); 
+	fprintf(bbr->bbr_log, "%i,%ld,%i,%u\n", bbr->mode, rtt, seg_len / rtt, bbr->cwnd);
+	fflush(bbr->bbr_log); 
+
+	if(bbr->cwnd < 4) {
+		bbr->cwnd = 4; 
+	}
 }
 
